@@ -37,8 +37,8 @@ function logoRoute(string $input): string
 
 test('without uploads the Gobia logo and icon are the defaults', function (): void {
     $definition = app(ExtensionSettingsRegistry::class)->get('gobia-core');
-    expect($definition->get('logo'))->toBe('/assets/gobia/img/icon-256.png');
-    expect($definition->get('favicon'))->toBe('/assets/gobia/img/favicon-32.png');
+    expect($definition->get('logo'))->toBe('/gobia/img/icon-256.png');
+    expect($definition->get('favicon'))->toBe('/gobia/img/favicon-32.png');
 });
 
 test('an admin uploads a PNG, it is served under a random name and reset returns the default', function (): void {
@@ -51,7 +51,7 @@ test('an admin uploads a PNG, it is served under a random name and reset returns
     $this->get($url)->assertOk()->assertHeader('Content-Type', 'image/png');
 
     $this->actingAs($this->admin)->delete(logoRoute('logo'), [], ['Accept' => 'application/json'])->assertOk();
-    expect(app(ExtensionSettingsRegistry::class)->get('gobia-core')->get('logo'))->toBe('/assets/gobia/img/icon-256.png');
+    expect(app(ExtensionSettingsRegistry::class)->get('gobia-core')->get('logo'))->toBe('/gobia/img/icon-256.png');
     expect(Storage::disk('local')->allFiles())->toBe([]);
 });
 
@@ -73,5 +73,5 @@ test('only administrators can change branding', function (): void {
 
 test('the page head carries the configured favicon', function (): void {
     $html = $this->get('/auth/login')->assertOk()->getContent();
-    expect($html)->toContain('/assets/gobia/img/favicon-32.png');
+    expect($html)->toContain('/gobia/img/favicon-32.png');
 });

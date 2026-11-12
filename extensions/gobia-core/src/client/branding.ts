@@ -1,13 +1,13 @@
 /**
- * The core shell reads the admin uploaded logo and the user's avatar from data attributes on <html> and re-renders on
- * the `gobia:branding` event (see resources/scripts/gobia/branding.ts). Only same origin paths made of URL safe
+ * The Gobia theme's shell reads the admin uploaded logo and the user's avatar from data attributes on <html> and re-renders on
+ * the `gobia:branding` event (see extensions/gobia-theme/src/gobia/branding.ts). Only same origin paths made of URL safe
  * characters are ever published: every segment must start with a letter, digit, underscore or hyphen, so `//host/x`
  * (protocol relative), `.` and `..` segments never match.
  */
 const SAFE_PATH = /^\/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*$/;
 
 /** The setting's default value; it means "no custom logo", so the shell keeps showing the Gobia wordmark. */
-export const DEFAULT_LOGO = '/assets/theme/img/icon-256.png';
+export const DEFAULT_LOGO = '/gobia/img/icon-256.png';
 
 const BRANDING_EVENT = 'gobia:branding';
 

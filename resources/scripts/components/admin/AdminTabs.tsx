@@ -38,6 +38,8 @@ export const adminTabGroups: AdminTabGroup[] = [
             settings('Advanced', '/panel/settings/advanced'),
             settings('API Keys', '/panel/api'),
             settings('Extensions', '/panel/extensions'),
+            // Upstream's theme platform: the Gobia theme's footer and sidebar settings are edited here.
+            settings('Themes', '/panel/themes'),
             settings('Tags', '/panel/tags'),
         ],
     },

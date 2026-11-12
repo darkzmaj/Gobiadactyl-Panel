@@ -19,7 +19,8 @@
         "prefix": "gf",
         "views": [
             "server.files.manager",
-            "server.files.editor"
+            "server.files.editor",
+            "server.files.editor.canvas"
         ]
     }
 }

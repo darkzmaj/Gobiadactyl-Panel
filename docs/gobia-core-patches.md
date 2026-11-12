@@ -1,6 +1,6 @@
 # Gobia core patches
 
-Every modification Gobia makes to official Pterodactyl files outside Gobia owned paths (`extensions/gobia-*`, `public/assets/gobia`, `tools/audit-probe`,
+Every modification Gobia makes to official Pterodactyl files outside Gobia owned paths (`extensions/gobia-*`, `public/gobia`, `tools/audit-probe`,
 `scripts/gobia`, `docs/gobia-*`, `tests/Integration/Gobia`, `tests/Integration/Extensions/AuditProbeTest.php`, `CLAUDE.md`, `MAJCEK_HANDOFF.md`,
 `vitest.gobia.config.ts`, `.oxlintrc.gobia.json`, `.github/workflows/gobia-ci.yaml`). Goal: keep this list tiny.
 
@@ -15,17 +15,20 @@ pages (`packages/sdk/THEMES.md`). That was the removal path of most visual patch
 
 | In `extensions/gobia-theme` | Replaces the former core patch |
 | --- | --- |
-| `src/theme.css` (tokens, fonts) and `src/gobia.css` (the gb-* component layer) | `themes/gobia/tokens.css` and `p:theme:apply gobia`, the `resources/gobia/gobia.css` import in `resources/scripts/index.tsx` |
+| `src/theme.css` (tokens, fonts) and `src/gobia.css` (the gb-* component layer). It does not import `@pterodactyl/sdk/theme-entry.css`, which would rebuild the whole panel stylesheet the panel already loads (75 KB instead of 173 KB); every utility class the views use must be in `@pterodactyl/sdk/core-classes.txt` | `themes/gobia/tokens.css` and `p:theme:apply gobia`, the `resources/gobia/gobia.css` import in `resources/scripts/index.tsx` |
 | `src/skins.ts` (sentence case and medium corners for buttons, labels, card titles; no page footer) | `components/elements/Button.tsx`, `Label.tsx`, `PageContentBlock.tsx` (footer), `form/controls.tsx`, `ui/*`, `typography.ts`, `ContentBox.tsx`, `TitledGreyBox.tsx` and the other primitive class patches |
 | `src/views/Shell.tsx` (`layout.app`: top bar, area sidebar with the fixed admin groups, user menu, footer), `ServerCard.tsx` (switcher and status dots), `UserMenu.tsx` | `router/layouts/AuthenticatedLayout.tsx`, `AdminLayout.tsx`, `ServerLayout.tsx`, `resources/scripts/gobia/shell/*`, the admin navigation entries and labels removed in `router/routeTree.ts` |
 | `src/views/AccountLayout.tsx` (`layout.account`), `AccountSecurity.tsx` (`page.account.overview`) | `router/layouts/AccountLayout.tsx`, `dashboard/AccountOverviewContainer.tsx` |
 | `src/views/auth/AuthLayout.tsx` (`layout.auth`), `auth/pages.tsx` (`page.auth.*`) | `router/layouts/AuthLayout.tsx`, `components/auth/*Container.tsx`, `LoginFormContainer.tsx` |
+| `src/views/Footer.tsx`, theme settings (Admin, Themes, Gobia, Footer and Sidebar) | The gobia.cloud footer: now the copyright line and the sponsor, and the sidebar card, all editable or hideable |
+| `src/views/ServerSftp.tsx` (`server.sftp`), `StartupImage.tsx` (`server.startup.image`) | The labelled SFTP fields and Docker image select of the former core settings and startup pages (axe) |
+| The `--terminal-*` tokens in `src/theme.css` | Console selection in Gobia blue, the blue prompt and muted status lines (the console reads tokens as solid colours, so none is transparent) |
 | `src/views/SettingsTabs.tsx` (over `page.server.settings` and `page.server.startup`) | `components/server/settings/SettingsContainer.tsx`, `ServerSettingsTabs.tsx`, `startup/StartupContainer.tsx` |
 | The scheme switch (`model.setScheme`, the `pterodactyl_scheme` cookie) | the inline scheme script in `resources/views/templates/wrapper.blade.php` and gobia-core's class toggling |
 
 Upstream also replaced "replaceable components" with view overrides, so the `dashboard.page` patch (componentTypes, manifest name lists, testing
 fixtures) is gone: `gobia-core` overrides `page.dashboard`, `gobia-files` overrides `server.files.manager` and `server.files.editor` (`ui.views` and
-`views.override`). The Gobia brand images moved from `themes/gobia/assets/img` (published by the old theme command) to the tracked `public/assets/gobia/img`.
+`views.override`). The Gobia brand images moved from `themes/gobia/assets/img` (published by the old theme command) to the tracked `public/gobia/img`.
 
 ## Permanent patches
 
@@ -42,6 +45,10 @@ fixtures) is gone: `gobia-core` overrides `page.dashboard`, `gobia-files` overri
 | `app/Services/Extensions/ExtensionRepository.php` (`records()`, `clearErrors()`, `recordFailure()`) | The `extensions` table check is the failed select (SQLSTATE 42S02) instead of an `information_schema` query, and `clearErrors()` sends no query when the rows just read carry no error (on top of upstream's load phase rule). Boot queries per request: 3 before, 1 after (`docs/gobia-backend-performance.md`) | The extension loader is core | Low to medium | `tests/Unit/Services/Extensions`, `tests/Integration/Extensions`, `tests/Integration/Gobia` | Offer upstream |
 | `bootstrap/app.php` (groups `admin-api`, `application-api`) | The administrator and application checks run before route model binding, so a caller without access cannot tell existing ids from missing ones (`docs/gobia-security-review.md`, finding 6) | Middleware groups are core | Low: two lines | `tests/Integration/Gobia/AdminEnumerationTest.php` | Offer upstream |
 | `package.json`, `package-lock.json`, `packages/sdk/types/**` (regenerated) | `dev:gobia` and `test:gobia:browser` scripts, dev dependencies of the browser checks (`playwright-core`, `axe-core`, `pixelmatch`, `pngjs`) | Tooling | Low | `npm run sdk:check` | Keep |
+| `resources/scripts/components/server/console/useConsoleSocketLogs.ts`, `views/server/console.ts` (fixtures) | The panel's prompt in the console is `panel@gobia~` in bold bright blue (the text an administrator sets in gobia-core, Branding, published as `data-gobia-console-prompt`, control characters dropped); Wings' status lines are muted (bright black); a repeated identical power state is printed once | The prompt and the line formatting live in the engine hook, not in a view | Low (one constant became a function, one handler) | `a11y` and `smoke` browser suites | An upstream option for the prompt |
+| `resources/scripts/components/admin/AdminTabs.tsx` (Themes tab) | Admin, Themes is a tab of Settings, so the theme's settings are reachable without a sidebar entry | Admin pages are core routes | Low | admin flows | Keep with AdminTabs |
+| `resources/scripts/components/Avatar.tsx` | A generated avatar without a title is `aria-hidden` (axe `svg-img-alt` on every page that shows one) | `Avatar` is replaceable, but a replacement would have to ship `boring-avatars` in the theme entry | Low (one prop) | `a11y` browser suite | Offer upstream |
+| `public/favicon.ico` (new) | The Gobia icon for browsers and crawlers that ask for `/favicon.ico` without reading the page head. The head icons, web manifest and tile config are registered by gobia-core (`registerHeadTags`), which replaces every Pterodactyl icon element | Static file at the web root | None (new file) | `curl /favicon.ico` | Keep |
 | `.gitattributes` (new) | `*.sh` and `deploy/linux/*` keep LF on a Windows checkout | Repository configuration | None | n/a | Keep |
 | `deploy/linux/gobia-update-helper`, `scripts/release/*`, `.github/workflows/gobia-release.yaml` (new) | Privileged update helper, release packaging and signing | Deployment tooling | None | `tests/Integration/Gobia/UpdaterTest.php`, `docs/gobia-updater-e2e.md` | Keep |
 | `services/mock-wings/server.mjs` | Pushes stats every second, dev only `mock-stats` endpoint | Development tool, never shipped | None | `status:` flows | Keep |
@@ -67,4 +74,8 @@ fixtures) is gone: `gobia-core` overrides `page.dashboard`, `gobia-files` overri
   `IntegrationTestCase` still keep their rows, so the Gobia tests that count everything an administrator sees compare against what was there before.
   Open: `OffsiteBackupTest` "the schedule queues a backup" passes alone, in the Gobia suite and against a used database, but fails after the whole
   upstream suite in one process (some state leaks between tests in that process; not found yet).
+* **Dependencies (2026-11-12):** `composer update "symfony/*" phpseclib/phpseclib -W` and `npm audit fix` cleared every Composer
+  advisory (14, two high) and the high and moderate npm ones (`follow-redirects`, `seroval`) within the allowed ranges. Left for
+  upstream: `i18next-http-backend` (low; needs a major upgrade; the language in its query string comes from the panel's own
+  validated locale list).
 * **Windows only:** upstream requires `ext-posix`; a Windows development checkout installs with `composer install --ignore-platform-req=ext-posix`.

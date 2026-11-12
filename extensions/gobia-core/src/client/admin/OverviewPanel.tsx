@@ -37,7 +37,16 @@ interface Overview {
         nodes: { total: number; online: number; maintenance: number; offline: number };
     };
     nodes: NodeRow[];
+    /** Megabytes across all nodes; `safe` is what can still be allocated without eating into the reserve. */
+    allocatable: {
+        enabled: boolean;
+        reserve_percent: number;
+        memory: { total: number; allocated: number; reserved: number; safe: number };
+        disk: { total: number; allocated: number; reserved: number; safe: number };
+    };
 }
+
+const MIB = 1024 * 1024;
 
 type Totals = Overview['totals'];
 
@@ -264,6 +273,8 @@ export default function OverviewPanel() {
     if (isError) return <p className={'gb-badge gb-badge-danger'}>The overview could not be loaded.</p>;
 
     const { ram, storage, cpu, instances, nodes } = data.resources;
+    const { allocatable } = data;
+    const reserveText = `${allocatable.reserve_percent}% kept free (${allocatable.enabled ? 'enforced' : 'protector off'})`;
 
     return (
         <section aria-label={'Gobia overview'}>
@@ -290,7 +301,8 @@ export default function OverviewPanel() {
                     headline={formatBytes(ram.allocated)}
                     caption={`allocated of ${formatBytes(ram.total)}`}
                     rows={[
-                        ['Available to allocate', formatBytes(Math.max(0, ram.total - ram.allocated))],
+                        ['Safe to allocate', formatBytes(allocatable.memory.safe * MIB)],
+                        ['Reserve', reserveText],
                         ['In use now', live(ram.used, ram.total)],
                     ]}
                     usage={{ used: ram.used, total: ram.total }}
@@ -301,7 +313,8 @@ export default function OverviewPanel() {
                     headline={formatBytes(storage.allocated)}
                     caption={`allocated of ${formatBytes(storage.total)}`}
                     rows={[
-                        ['Available to allocate', formatBytes(Math.max(0, storage.total - storage.allocated))],
+                        ['Safe to allocate', formatBytes(allocatable.disk.safe * MIB)],
+                        ['Reserve', reserveText],
                         ['In use now', live(storage.used, storage.total)],
                     ]}
                     usage={{ used: storage.used, total: storage.total }}

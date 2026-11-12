@@ -5,9 +5,9 @@ import { useSyncExternalStore } from 'react';
  * They travel through data attributes on <html> plus one window event, so the core shell never imports extension code.
  */
 export const BRANDING_EVENT = 'gobia:branding';
-export const DEFAULT_LOGO = '/assets/gobia/img/logo-text-240.png';
-export const DEFAULT_LOGO_2X = '/assets/gobia/img/logo-text-480.png';
-export const DEFAULT_ICON = '/assets/gobia/img/icon-64.png';
+export const DEFAULT_LOGO = '/gobia/img/logo-text-240.png';
+export const DEFAULT_LOGO_2X = '/gobia/img/logo-text-480.png';
+export const DEFAULT_ICON = '/gobia/img/icon-64.png';
 
 type Key = 'logo' | 'avatar';
 

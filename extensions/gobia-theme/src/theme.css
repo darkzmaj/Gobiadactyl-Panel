@@ -1,11 +1,15 @@
 /*
- * The Gobia theme: the panel stylesheet with every class the panel uses, Gobia's tokens, then the Gobia component
- * layer (gobia.css, the gb-* classes the shell and the Gobia extensions draw with).
+ * The Gobia theme: Gobia's tokens and the Gobia component layer (gobia.css, the gb-* classes the shell and the Gobia
+ * extensions draw with), linked after the panel's own stylesheet.
  *
  * Palette: Gobia blue on dark navy surfaces with thin borders. Light and dark are separately designed palettes; the
  * panel puts `dark` or `light` on <html> from the user's choice (Dark, Light or System).
  */
-@import '@pterodactyl/sdk/theme-entry.css';
+/*
+ * No `@pterodactyl/sdk/theme-entry.css`: it rebuilds the whole panel stylesheet into this file, which the panel already
+ * loads, so every visitor would download it twice. Every utility class the theme's views use is in the panel stylesheet
+ * (checked against @pterodactyl/sdk/core-classes.txt); a new one that is not needs this import back.
+ */
 @import './gobia.css';
 
 /* Shipped with the theme: the build copies the files beside dist/theme.css. */
@@ -25,13 +29,10 @@
     src: url('./fonts/space-grotesk-latin-wght-normal.woff2') format('woff2-variations');
 }
 
-@theme {
+/* Both schemes. The panel's font-sans and font-header classes read these. */
+:root {
     --font-sans: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     --font-header: 'Space Grotesk', 'Manrope', system-ui, sans-serif;
-}
-
-/* Both schemes. */
-:root {
     --radius: 0.78rem;
     --layout-content-width: 80rem;
     --layout-auth-width: 43.75rem;
@@ -124,4 +125,51 @@
 
     --terminal-background: #070b11;
     --terminal-foreground: #d6e0ee;
+}
+
+/* The page footer: the copyright line and the sponsor, centred under the content (Footer.tsx). */
+.gb-footer-min {
+    padding: 20px var(--gb-gutter) 24px;
+    text-align: center;
+    color: var(--gb-text-3);
+}
+
+.gb-footer-min p {
+    margin: 0;
+}
+
+.gb-footer-copyright {
+    font-size: 13px;
+}
+
+.gb-footer-sponsor {
+    margin-top: 4px !important;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+}
+
+.gb-footer-sponsor a {
+    color: var(--gb-text-2);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.gb-footer-sponsor a:hover,
+.gb-footer-sponsor a:focus-visible {
+    color: var(--gb-primary);
+    text-decoration: underline;
+}
+
+/*
+ * The console palette (both schemes: the console is dark in both). The terminal reads these as solid colours, so none
+ * carries transparency. Bright blue is the panel@gobia~ prompt, bright black the muted Wings status lines, and the
+ * selection is Gobia blue instead of the stock yellow.
+ */
+:root {
+    --terminal-selection: #1d5fa8;
+    --terminal-selection-foreground: #f4f8fd;
+    --terminal-cursor: #4da3ff;
+    --terminal-ansi-blue: #3b82e0;
+    --terminal-ansi-bright-blue: #4da3ff;
+    --terminal-ansi-bright-black: #6f7d93;
 }

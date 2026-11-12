@@ -23,6 +23,8 @@ export default defineTheme({
         'layout.admin': AreaLayout,
         'layout.account': lazyView(() => import('./views/AccountLayout')),
         'layout.auth': AuthLayout,
+        'server.sftp': lazyView(() => import('./views/ServerSftp')),
+        'server.startup.image': lazyView(() => import('./views/StartupImage')),
         'page.account.overview': lazyView(() => import('./views/AccountSecurity')),
         'page.server.settings': lazyView(() => import('./views/SettingsTabs')),
         'page.server.startup': lazyView(() => import('./views/SettingsTabs')),

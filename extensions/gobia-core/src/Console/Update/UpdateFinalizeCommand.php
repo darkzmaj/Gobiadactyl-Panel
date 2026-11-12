@@ -28,13 +28,16 @@ class UpdateFinalizeCommand extends Command
 
     public function handle(ExtensionRepository $extensions, SetsExtensionEnabled $installer, ActivatesThemes $themes, ThemeRepository $themeRepository, CompatibilityReport $report): int
     {
+        $theme = (string) config('gobia_updater.theme');
         $records = $extensions->records();
         $bundled = array_keys((array) ($report->release()['extensions'] ?? []));
         $failed = false;
 
         foreach ($extensions->discovered() as $manifest) {
             $record = $records->get($manifest->id);
-            $wanted = $record !== null ? (bool) $record->enabled : in_array($manifest->id, $bundled, true);
+            // The configured theme is always published: an install from before the theme platform has no record of it,
+            // and activating it below needs it enabled.
+            $wanted = $manifest->id === $theme || ($record !== null ? (bool) $record->enabled : in_array($manifest->id, $bundled, true));
             if (! $wanted) {
                 continue;
             }
@@ -49,8 +52,7 @@ class UpdateFinalizeCommand extends Command
             }
         }
 
-        // The theme is an extension since Pterodactyl's theme platform: the loop above republished it, so activate it last.
-        $theme = (string) config('gobia_updater.theme');
+        // The theme is an extension since Pterodactyl's theme platform: the loop above published it, so activate it last.
         if ($theme !== '' && $themeRepository->installed()->has($theme)) {
             try {
                 $themes->activate($theme);

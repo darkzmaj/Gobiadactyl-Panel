@@ -14,11 +14,15 @@ use Pterodactyl\Models\User;
  * @property int $user_id
  * @property string|null $avatar_file
  * @property string $theme
+ * @property string $file_editor
  * @property list<string>|null $recent_icon_colors
  */
 class UserProfile extends Model
 {
     public const array THEMES = ['system', 'light', 'dark'];
+
+    /** The Gobia workspace, or the legacy file list with the Monaco editor (gobia-files). */
+    public const array FILE_EDITORS = ['gobia', 'legacy'];
 
     public $incrementing = false;
 
@@ -26,9 +30,9 @@ class UserProfile extends Model
 
     protected $primaryKey = 'user_id';
 
-    protected $fillable = ['avatar_file', 'theme', 'recent_icon_colors'];
+    protected $fillable = ['avatar_file', 'theme', 'file_editor', 'recent_icon_colors'];
 
-    protected $attributes = ['theme' => 'system'];
+    protected $attributes = ['theme' => 'system', 'file_editor' => 'gobia'];
 
     protected function casts(): array
     {

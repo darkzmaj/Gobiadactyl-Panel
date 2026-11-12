@@ -36,12 +36,15 @@ class ProfileController
         return new JsonResponse($this->payload($request->user(), UserProfile::forUser($request->user())));
     }
 
-    #[Endpoint('Update appearance', 'Stores the signed in user\'s colour scheme preference.')]
+    #[Endpoint('Update appearance', 'Stores the signed in user\'s colour scheme and file editor preferences; send either or both.')]
     public function updateAppearance(Request $request): JsonResponse
     {
-        $data = $request->validate(['theme' => ['required', 'string', Rule::in(UserProfile::THEMES)]]);
+        $data = $request->validate([
+            'theme' => ['required_without:file_editor', 'string', Rule::in(UserProfile::THEMES)],
+            'file_editor' => ['required_without:theme', 'string', Rule::in(UserProfile::FILE_EDITORS)],
+        ]);
         $profile = UserProfile::forUser($request->user());
-        $profile->update(['theme' => $data['theme']]);
+        $profile->update(array_intersect_key($data, array_flip(['theme', 'file_editor'])));
 
         return new JsonResponse($this->payload($request->user(), $profile));
     }
@@ -99,9 +102,9 @@ class ProfileController
         return new JsonResponse($this->payload($user, UserProfile::forUser($user)));
     }
 
-    /** @return array{theme: string, avatar_url: string|null, username: string} */
+    /** @return array{theme: string, file_editor: string, avatar_url: string|null, username: string} */
     private function payload(User $user, UserProfile $profile): array
     {
-        return ['theme' => $profile->theme, 'avatar_url' => AvatarService::url($profile), 'username' => $user->username];
+        return ['theme' => $profile->theme, 'file_editor' => $profile->file_editor, 'avatar_url' => AvatarService::url($profile), 'username' => $user->username];
     }
 }

@@ -39,7 +39,16 @@ function CoreAvatar({ variant = 'beam', image, className, ...props }: AvatarProp
         );
     }
 
-    return <BoringAvatar colors={palette} variant={variant} {...props} {...ui('root', className)} />;
+    // Gobia: without a title the pattern is decoration, so it is hidden from screen readers (axe: svg-img-alt).
+    return (
+        <BoringAvatar
+            colors={palette}
+            variant={variant}
+            aria-hidden={props.title ? undefined : true}
+            {...props}
+            {...ui('root', className)}
+        />
+    );
 }
 
 const _Avatar = replaceable('Avatar', CoreAvatar);

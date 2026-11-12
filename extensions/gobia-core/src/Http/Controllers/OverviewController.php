@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GobiaCore\Http\Controllers;
 
 use GobiaCore\Services\NodeStatsService;
+use GobiaCore\Services\ResourceGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,7 @@ use Knuckles\Scribe\Attributes\Group;
 #[Group('Gobia admin')]
 class OverviewController
 {
-    public function __construct(private readonly NodeStatsService $nodes) {}
+    public function __construct(private readonly NodeStatsService $nodes, private readonly ResourceGuard $guard) {}
 
     #[Endpoint('Administration overview', 'Totals for users, administrators, nodes, instances, databases, locations, mounts and templates, plus allocated and live resource usage per node. Offline nodes are reported, never fatal.')]
     public function __invoke(Request $request): JsonResponse
@@ -35,6 +36,8 @@ class OverviewController
                 'templates' => $count('gobia_server_templates'),
             ],
             'resources' => $snapshot['global'],
+            // What can still be allocated across all nodes without eating into the resource protector's reserve.
+            'allocatable' => $this->guard->summary(),
             'nodes' => $snapshot['nodes'],
             'generated_at' => $snapshot['generated_at'],
         ]);

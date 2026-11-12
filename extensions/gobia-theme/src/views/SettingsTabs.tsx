@@ -29,7 +29,7 @@ export default function SettingsTabs({
     return (
         <>
             {identifier && tabs.length > 1 && (
-                <nav aria-label='Settings' className='page-width mt-4 sm:mt-6 flex flex-wrap border-b border-border'>
+                <nav aria-label='Settings' className='page-width mt-6 flex flex-wrap border-b border-border'>
                     {tabs.map((tab) => {
                         const active = tab.to === path;
 

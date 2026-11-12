@@ -2,11 +2,15 @@ import './styles.css';
 import { definePterodactylExtension } from '@pterodactyl/sdk';
 import OverviewPanel from './admin/OverviewPanel';
 import ProfileSync from './ProfileSync';
+import { restoreFileEditor } from './appearance';
 import { applyLogo } from './branding';
 
 export default definePterodactylExtension({
     setup({ screens, slots, views, config }) {
         applyLogo(String(config.logo ?? ''));
+        restoreFileEditor();
+        // The console prompt the administrator chose (Admin, Extensions, Gobia Core, Branding); the panel's console reads it.
+        document.documentElement.dataset.gobiaConsolePrompt = String(config.console_prompt ?? '');
         slots.register('nav.items.after', ProfileSync);
         slots.register('panel.overview.before', OverviewPanel);
         screens.register('profile', () => import('./screens/ProfileScreen'));

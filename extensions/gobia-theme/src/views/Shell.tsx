@@ -38,8 +38,10 @@ import {
     type AppLayoutModel,
     type ServerArea,
     type ViewProps,
+    useThemeSettings,
 } from '@pterodactyl/sdk/theme';
 import { DEFAULT_ICON, DEFAULT_LOGO, DEFAULT_LOGO_2X, useBranding } from '../gobia/branding';
+import type { ThemeSettings } from '../theme-types';
 import Footer from './Footer';
 import ServerCard from './ServerCard';
 import UserMenu from './UserMenu';
@@ -299,6 +301,9 @@ export default function Shell({ model, children }: ViewProps<'layout.app'>) {
     const dashboard = links.find((link) => link.id === 'dashboard');
     const account = links.find((link) => link.id === 'account');
     const admin = area.kind === 'admin';
+    // The card at the bottom of the sidebar (Admin, Themes, Sidebar): back to the list in the admin area, the account elsewhere.
+    const settings = useThemeSettings<ThemeSettings>();
+    const card = admin ? dashboard : account;
 
     // Only the page area animates on navigation: restart its short fade without remounting anything.
     useEffect(() => {
@@ -372,15 +377,12 @@ export default function Shell({ model, children }: ViewProps<'layout.app'>) {
                             {area.kind === 'admin' && <AdminSidebar area={area} />}
                             {(area.kind === 'dashboard' || area.kind === 'account') && <DefaultSidebar links={links} />}
                         </nav>
-                        {(admin ? dashboard : account) && (
-                            <PanelLink
-                                destination={(admin ? dashboard : account)!.destination}
-                                className='gb-sidebar-foot'
-                            >
-                                <img src={DEFAULT_ICON} alt='' />
+                        {card && settings.sidebarCardShow && (
+                            <PanelLink destination={card.destination} className='gb-sidebar-foot'>
+                                <img src={settings.sidebarCardLogo || DEFAULT_ICON} alt='' />
                                 <span style={{ minWidth: 0 }}>
-                                    <strong>{model.brand.name}</strong>
-                                    <span>{admin ? 'Back to instances' : 'Beyond The Clouds'}</span>
+                                    <strong>{settings.sidebarCardTitle.trim() || model.brand.name}</strong>
+                                    <span>{admin ? 'Back to instances' : settings.sidebarCardText.trim()}</span>
                                 </span>
                             </PanelLink>
                         )}

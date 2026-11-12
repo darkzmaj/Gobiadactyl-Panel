@@ -1,125 +1,46 @@
-import { Settings } from 'lucide-react';
+import { useThemeSettings } from '@pterodactyl/sdk/theme';
+import type { ThemeSettings } from '../theme-types';
 
-// The gobia.cloud footer. Link targets are paths on the Gobia site; "soon" shows the SOON badge instead of a link.
-const SITE = 'https://gobia.cloud';
+/** Only web addresses become links, so a setting can never turn into a `javascript:` link. */
+function safeLink(value: string): string | null {
+    try {
+        const url = new URL(value);
 
-interface FooterLink {
-    label: string;
-    href?: string;
-    soon?: boolean;
+        return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    } catch {
+        return null;
+    }
 }
 
-const columns: { title: string; links: FooterLink[] }[] = [
-    {
-        title: 'PRODUCT',
-        links: [
-            { label: 'Cloud', href: '/cloud' },
-            { label: 'Tools', href: '/tools' },
-            { label: 'Pricing', href: '/pricing' },
-            { label: 'Hosting Roadmap', href: '/roadmap' },
-        ],
-    },
-    {
-        title: 'COMPANY',
-        links: [
-            { label: 'About Us', href: '/about' },
-            { label: 'Contact', href: '/contact' },
-            { label: 'Careers', soon: true },
-        ],
-    },
-    {
-        title: 'LEGAL',
-        links: [
-            { label: 'Privacy Policy', href: '/privacy' },
-            { label: 'Terms of Service', href: '/terms' },
-            { label: 'Cookie Policy', href: '/cookies' },
-            { label: 'DMCA', href: '/dmca' },
-            { label: 'Impressum', href: '/impressum' },
-        ],
-    },
-];
+/**
+ * The bottom of every page: the copyright line and, smaller, the sponsor. Both are theme settings (Admin, Themes,
+ * Footer); with both hidden nothing is drawn at all.
+ */
+export default function Footer() {
+    const settings = useThemeSettings<ThemeSettings>();
+    const copyright = settings.footerCopyrightShow ? settings.footerCopyright.trim() : '';
+    const sponsor = settings.footerSponsorShow ? settings.footerSponsorName.trim() : '';
+    const href = sponsor ? safeLink(settings.footerSponsorUrl.trim()) : null;
 
-export default function GobiaFooter() {
+    if (!copyright && !sponsor) {
+        return null;
+    }
+
     return (
-        <footer className='gb-footer'>
-            <div className='gb-footer-inner'>
-                <div className='gb-footer-grid'>
-                    <div className='gb-footer-brand'>
-                        <img
-                            src='/assets/gobia/img/logo-text-240.png'
-                            srcSet='/assets/gobia/img/logo-text-240.png 1x, /assets/gobia/img/logo-text-480.png 2x'
-                            alt='Gobia Cloud'
-                            width={177}
-                            height={56}
-                        />
-                        <p>
-                            <strong>Beyond The Clouds</strong>, a secure digital home for your files, projects, and
-                            ideas, with reliable storage, easy access, and built-in peace of mind.
-                        </p>
-                    </div>
-                    {columns.map((column) => (
-                        <nav key={column.title} aria-label={column.title.toLowerCase()}>
-                            <h4>{column.title}</h4>
-                            <ul>
-                                {column.links.map((link) => (
-                                    <li key={link.label}>
-                                        {link.soon || !link.href ? (
-                                            <>
-                                                <span className='gb-footer-soon-label'>{link.label}</span>{' '}
-                                                <span className='gb-soon'>SOON</span>
-                                            </>
-                                        ) : (
-                                            <a href={SITE + link.href}>{link.label}</a>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul>
-                        </nav>
-                    ))}
-                </div>
-                <div className='gb-footer-bottom'>
-                    <div className='gb-footer-center'>
-                        <p>
-                            &copy; {new Date().getFullYear()} <strong>Gobia Cloud</strong>. All Rights Reserved.
-                        </p>
-                        <a
-                            className='gb-footer-cryvex'
-                            href='https://cryvex.org'
-                            target='_blank'
-                            rel='noopener noreferrer'
-                            aria-label='Cryvex, opens cryvex.org'
-                        >
-                            <img
-                                className='gb-footer-watermark gb-only-dark'
-                                src='/assets/gobia/img/cryvex-240.png'
-                                alt=''
-                                width={110}
-                                height={56}
-                            />
-                            <img
-                                className='gb-footer-watermark gb-only-light'
-                                src='/assets/gobia/img/cryvex-black-240.png'
-                                alt=''
-                                width={110}
-                                height={56}
-                            />
+        <footer className='gb-footer-min'>
+            {copyright && <p className='gb-footer-copyright'>{copyright}</p>}
+            {sponsor && (
+                <p className='gb-footer-sponsor'>
+                    {settings.footerSponsorLabel.trim()}{' '}
+                    {href ? (
+                        <a href={href} target='_blank' rel='noopener noreferrer'>
+                            {sponsor}
                         </a>
-                    </div>
-                    <div className='gb-footer-tools'>
-                        <a
-                            href='https://gobia.cloud/discord'
-                            target='_blank'
-                            rel='noopener noreferrer'
-                            aria-label='Join the Gobia Cloud Discord'
-                        >
-                            <span className='gb-footer-discord' aria-hidden />
-                        </a>
-                        <a href='/account/appearance' aria-label='Appearance settings'>
-                            <Settings aria-hidden />
-                        </a>
-                    </div>
-                </div>
-            </div>
+                    ) : (
+                        sponsor
+                    )}
+                </p>
+            )}
         </footer>
     );
 }

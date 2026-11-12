@@ -4,7 +4,22 @@ import { SocketEvent, SocketRequest } from '@/components/server/events';
 import { normalizeTransferStatus } from '@/components/server/transfer';
 import type { Websocket } from '@/plugins/Websocket';
 
-const TERMINAL_PRELUDE = '\u001b[1m\u001b[33mcontainer@pterodactyl~ \u001b[0m';
+/**
+ * Gobia: the prompt in front of the panel's own lines, bold bright blue. gobia-core publishes the text an administrator
+ * chose as `data-gobia-console-prompt` on <html>; control characters are dropped so it can never carry escape codes.
+ */
+const DEFAULT_PROMPT = 'panel@gobia~';
+// oxlint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
+
+const terminalPrelude = () => {
+    const custom = (document.documentElement.dataset.gobiaConsolePrompt ?? '').replace(CONTROL_CHARACTERS, '').trim();
+
+    return `\u001b[1m\u001b[94m${custom || DEFAULT_PROMPT} \u001b[0m`;
+};
+
+/** Gobia: Wings' own status lines are muted so the server's output stands out. */
+const DAEMON_TEXT = '\u001b[90m';
 
 // Wings answers a throttled request with this event, naming the request it dropped.
 const THROTTLED_EVENT = 'throttled';
@@ -15,7 +30,7 @@ const SEND_LOGS_RETRY_MS = 5_000;
 const MAX_RETAINED_TRANSFER_LINES = 1_000;
 
 const formatLine = (line: string, prelude = false) =>
-    `${(prelude ? TERMINAL_PRELUDE : '') + line.replace(/(?:\r\n|\r|\n)$/im, '')}\u001b[0m`;
+    `${(prelude ? terminalPrelude() + DAEMON_TEXT : '') + line.replace(/(?:\r\n|\r|\n)$/im, '')}\u001b[0m`;
 
 /** Streams the server's socket output into the terminal, requesting log history on each connection. */
 export const useConsoleSocketLogs = ({
@@ -52,15 +67,23 @@ export const useConsoleSocketLogs = ({
 
         const handleTransferStatus = (status: string) => {
             if (normalizeTransferStatus(status) === 'failed') {
-                writeTransferLine(`${TERMINAL_PRELUDE}Transfer has failed.\u001b[0m`);
+                writeTransferLine(`${terminalPrelude()}Transfer has failed.\u001b[0m`);
             }
         };
 
         const handleDaemonErrorOutput = (line: string) =>
-            term.writeln(`${TERMINAL_PRELUDE}\u001b[1m\u001b[41m${formatLine(line)}`);
+            term.writeln(`${terminalPrelude()}\u001b[1m\u001b[41m${formatLine(line)}`);
 
-        const handlePowerChangeEvent = (state: string) =>
-            term.writeln(`${TERMINAL_PRELUDE}Server marked as ${state}...\u001b[0m`);
+        // Gobia: the same state reported again (a reconnect, a repeated event) is not printed a second time.
+        let lastState: string | null = null;
+        const handlePowerChangeEvent = (state: string) => {
+            if (state === lastState) {
+                return;
+            }
+
+            lastState = state;
+            term.writeln(`${terminalPrelude()}${DAEMON_TEXT}Server marked as ${state}...\u001b[0m`);
+        };
 
         const listeners = [
             [SocketEvent.STATUS, handlePowerChangeEvent],

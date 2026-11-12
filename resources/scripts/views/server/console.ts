@@ -235,7 +235,8 @@ function useServerGraphsModel(): ServerGraphsModel {
 
 const noop = () => {};
 
-const PRELUDE = '\u001b[1m\u001b[33mcontainer@pterodactyl~ \u001b[0m';
+// Gobia: the same prompt as the live console (components/server/console/useConsoleSocketLogs.ts).
+const PRELUDE = '\u001b[1m\u001b[94mpanel@gobia~ \u001b[0m';
 
 const RunningTerminal = createSampleTerminal([
     `${PRELUDE}Server marked as starting...`,
