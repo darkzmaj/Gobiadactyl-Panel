@@ -1,0 +1,92 @@
+# Gobia Panel from a signed release image (deploy/docker/build-image.sh). Usable as a Coolify Docker Compose resource.
+#
+# Required environment (Coolify: secrets): APP_URL, DB_PASSWORD, REDIS_PASSWORD, APP_KEY, HASHIDS_SALT.
+# PANEL_BIND is the only published address; set it to a private interface (for example the NetBird address and a port),
+# never 0.0.0.0. MariaDB and Redis publish nothing.
+#
+# First start: docker compose run --rm panel php artisan migrate --force --seed
+#              then the post_install commands of gobia-release.json (extensions and theme).
+
+x-panel-environment: &panel-environment
+  APP_URL: ${APP_URL:?}
+  APP_KEY: ${APP_KEY:?}
+  HASHIDS_SALT: ${HASHIDS_SALT:?}
+  APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_ENVIRONMENT_ONLY: "false"
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:?}
+  SESSION_SECURE_COOKIE: "true"
+  DB_HOST: database
+  DB_PORT: "3306"
+  DB_DATABASE: panel
+  DB_USERNAME: panel
+  DB_PASSWORD: ${DB_PASSWORD:?}
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  SESSION_CONNECTION: sessions
+  QUEUE_CONNECTION: redis
+  REDIS_HOST: cache
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+  MAIL_MAILER: log
+  # The release image never updates itself in place (the code is root owned, so the updater's permission preflight
+  # fails and the Update button stays unavailable); an update is the next signed release's image.
+
+services:
+  database:
+    image: mariadb:11.4
+    restart: unless-stopped
+    command: ["--innodb-buffer-pool-size=${DB_BUFFER_POOL:-2G}", "--max-connections=200"]
+    volumes:
+      - database:/var/lib/mysql
+    environment:
+      MARIADB_DATABASE: panel
+      MARIADB_USER: panel
+      MARIADB_PASSWORD: ${DB_PASSWORD:?}
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  cache:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?}"]
+    volumes:
+      - cache:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+
+  panel:
+    image: ${PANEL_IMAGE:-gobia-panel:2.1.0}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 90s
+    depends_on:
+      database: { condition: service_healthy }
+      cache: { condition: service_healthy }
+    ports:
+      - "${PANEL_BIND:?}:80"
+    volumes:
+      - var:/app/var
+      - storage:/app/storage
+      - extension-assets:/app/public/assets/extensions
+    environment:
+      <<: *panel-environment
+      QUEUE_WORKER_ENABLED: "true"
+      SCHEDULER_ENABLED: "true"
+
+volumes:
+  database:
+  cache:
+  var:
+  storage:
+  extension-assets:
