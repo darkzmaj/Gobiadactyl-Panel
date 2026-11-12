@@ -73,3 +73,21 @@ version, signed with the same real key; they exist only on the test machine and 
 Still not exercised in this run (unchanged from the first run): the GitHub release provider against the real API, PHP-FPM reloads, systemd
 restarts, the release directory layout end to end, an update with real Wings nodes connected, a full disk while unpacking, the Updates
 screen in a browser against a real update.
+
+# Third recorded run: 2.0.0 to the Gobia Panel 2.1.0 release package (2026-11-12)
+
+Same environment as the second run (WSL2 Ubuntu 24.04, PHP 8.3.6, MariaDB 10.11.14, PHP built-in server, unprivileged user `panel`,
+`GOBIA_UPDATE_PROVIDER=directory`, queue `database`, `APP_ENV=production`). Base: the real published 2.0.0 package. Target: the real 2.1.0
+package built by `scripts/release/build-release.sh` from `d02a5f24a` (Linux CI green on that SHA, run 43281356823 on the mirror; SHA-256 `737b69cb0f4d1786afcc6df7090db3885916f9761d479a5d7f04bc06591d330a`), signed
+with the Gobia 2.0 release key; signature, checksum and size verified against the committed public key; archive audit clean (19 244
+entries, no links, `.env`, `.git`, tests, keys or mock Wings).
+
+| Scenario | Result |
+| --- | --- |
+| Install 2.0.0 from its package | Needs `storage/` and `bootstrap/cache` created first (the package ships neither, by design); `gobia-theme` does not exist in 2.0.0, so its enable and activate were skipped |
+| Preflight 2.0.0 to 2.1.0 | 17 passed, 3 skipped (node runtime, Redis, Wings); "Ready to update"; 7 migrations announced |
+| `update:run` | Completed: 15 587 files unpacked, database dump written and verified, migrations, theme and extensions published, workers restarted, health check passed |
+| After the update | Version 2.1.0, login page 200, `pterodactyl:theme` = `gobia-theme` (set by `post_install`), a file in `storage/app/private` kept, code owned by `panel`, database password in no updater file |
+
+Not exercised: the same list as the second run, plus the container deployment (the updater replaces files in place; in a container the
+update path is a new image built from the next signed release).
