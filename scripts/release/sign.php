@@ -1,43 +1,79 @@
 <?php
 
+declare(strict_types=1);
+
 /*
- * Writes release.json for a built package and signs it with an Ed25519 key.
+ * Writes the signed release manifest (release.json) for a built Gobia package.
  *
- *   php scripts/release/sign.php <package.tar.gz> <version> <migrations:true|false> <requires_restart:true|false> <out release.json>
+ *   php scripts/release/sign.php <package.tar.gz> <staged tree> <out release.json>
  *
- * The secret key (base64) is read from the GOBIA_RELEASE_SIGNING_KEY environment variable or, for local
- * builds, from the file named by GOBIA_RELEASE_SIGNING_KEY_FILE. It is never written anywhere.
- * The signed message format must match App\Services\Updater\ReleaseInfo::signedMessage().
+ * The manifest is the tree's gobia-release.json plus what only the build knows: the bundled extension
+ * versions, every migration the release contains, and the artifact's name, size and SHA-256. It is signed
+ * with Ed25519 over GobiaCore\Updater\ReleaseSignature::message(), the same code the Panel verifies with.
+ *
+ * The secret key (base64) is read from GOBIA_RELEASE_SIGNING_KEY or, for local builds, from the file named
+ * by GOBIA_RELEASE_SIGNING_KEY_FILE. It is never written anywhere.
+ *
+ * RELEASE_DESTRUCTIVE=true marks the release as containing a destructive migration (see docs/gobia-updates.md).
  */
 
-[, $package, $version, $migrations, $restart, $out] = $argv + array_fill(0, 6, null);
+require __DIR__.'/../../extensions/gobia-core/src/Updater/ReleaseSignature.php';
 
-if (!is_file($package) || !preg_match('/^\d+\.\d+\.\d+-gobia\.\d+$/', (string) $version) || !$out) {
-    fwrite(STDERR, "usage: sign.php <package> <version> <migrations> <restart> <out>\n");
+[, $package, $tree, $out] = $argv + array_fill(0, 4, null);
+if (! is_string($package) || ! is_file($package) || ! is_string($tree) || ! is_file($tree.'/gobia-release.json') || ! is_string($out)) {
+    fwrite(STDERR, "usage: sign.php <package> <staged tree> <out>\n");
     exit(2);
 }
 
-$key = getenv('GOBIA_RELEASE_SIGNING_KEY') ?: (getenv('GOBIA_RELEASE_SIGNING_KEY_FILE') ? trim((string) file_get_contents(getenv('GOBIA_RELEASE_SIGNING_KEY_FILE'))) : '');
+$keyFile = getenv('GOBIA_RELEASE_SIGNING_KEY_FILE');
+$key = getenv('GOBIA_RELEASE_SIGNING_KEY') ?: ($keyFile ? trim((string) file_get_contents($keyFile)) : '');
 $secret = base64_decode($key, true);
 if ($secret === false || strlen($secret) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
     fwrite(STDERR, "A valid base64 Ed25519 secret key is required in GOBIA_RELEASE_SIGNING_KEY.\n");
     exit(2);
 }
 
-$sha256 = hash_file('sha256', $package);
-$size = filesize($package);
-$migrations = $migrations === 'true';
-$restart = $restart === 'true';
+$manifest = json_decode((string) file_get_contents($tree.'/gobia-release.json'), true, flags: JSON_THROW_ON_ERROR);
+$version = $manifest['gobia_version'] ?? '';
+if (preg_match('/^\d{1,4}\.\d{1,4}\.\d{1,4}(-(dev|alpha|beta|rc)(\.\d{1,4})?)?$/D', (string) $version) !== 1) {
+    fwrite(STDERR, "gobia-release.json has no valid gobia_version.\n");
+    exit(2);
+}
 
-$message = implode('|', ['gobia-release-v1', $version, $sha256, $size, $migrations ? 'migrations' : 'no-migrations', $restart ? 'restart' : 'no-restart']);
+$extensions = [];
+$migrations = array_map(fn (string $file): string => basename($file, '.php'), glob($tree.'/database/migrations/*.php') ?: []);
+foreach (glob($tree.'/extensions/gobia-*/extension.json') ?: [] as $file) {
+    $extension = json_decode((string) file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+    $extensions[$extension['id']] = $extension['version'];
+    foreach (glob(dirname($file).'/database/migrations/*.php') ?: [] as $migration) {
+        $migrations[] = basename($migration, '.php');
+    }
+}
+ksort($extensions);
+sort($migrations);
 
-file_put_contents($out, json_encode([
-    'version' => $version,
-    'sha256' => $sha256,
-    'size' => $size,
-    'migrations' => $migrations,
-    'requires_restart' => $restart,
-    'signature' => base64_encode(sodium_crypto_sign_detached($message, $secret)),
-], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+// The extension API version this release ships, read from its own configuration file.
+$sdk = preg_match("/'sdk_version'\s*=>\s*'([^']+)'/", (string) file_get_contents($tree.'/config/extensions.php'), $match) === 1 ? $match[1] : null;
 
-echo $sha256 . "  " . basename($package) . PHP_EOL;
+unset($manifest['post_install'], $manifest['signature']);
+$manifest['manifest_version'] = 2;
+$manifest['pterodactyl_base'] = ($manifest['pterodactyl_base'] ?? []) + ['version' => '2.0.0-dev'];
+$manifest['pterodactyl_base']['sdk'] = $sdk;
+$manifest['extensions'] = $extensions;
+$manifest['node_runtime_required'] = false;
+$manifest['migrations'] = [
+    'count' => count($migrations),
+    'names' => $migrations,
+    'destructive' => getenv('RELEASE_DESTRUCTIVE') === 'true',
+];
+$manifest['security_update'] = (bool) ($manifest['security_update'] ?? false);
+$manifest['artifact'] = [
+    'name' => basename($package),
+    'sha256' => hash_file('sha256', $package),
+    'size' => filesize($package),
+];
+$manifest['signature'] = base64_encode(sodium_crypto_sign_detached(GobiaCore\Updater\ReleaseSignature::message($manifest), $secret));
+
+file_put_contents($out, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE).PHP_EOL);
+
+echo $manifest['artifact']['sha256'].'  '.basename($package).PHP_EOL;

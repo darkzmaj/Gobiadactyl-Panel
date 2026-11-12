@@ -1,60 +1,52 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Services\Servers;
 
-use Pterodactyl\Models\User;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
-use Pterodactyl\Models\EggVariable;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use Pterodactyl\Traits\Services\HasUserLevels;
-use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use Pterodactyl\Data\ValidatedEggVariable;
+use Pterodactyl\Models\Egg;
+use Pterodactyl\Models\EggVariable;
+use Pterodactyl\Models\User;
 
 class VariableValidatorService
 {
-    use HasUserLevels;
-
     /**
-     * VariableValidatorService constructor.
-     */
-    public function __construct(private ValidationFactory $validator)
-    {
-    }
-
-    /**
-     * Validate all of the passed data against the given service option variables.
+     * Checks the submitted values against the rules of the egg's variables. Below the admin
+     * level only variables the user can view and edit are checked and returned.
+     *
+     * @param  array<string, bool|float|int|string|null>  $fields  environment variable name => submitted value
+     * @return Collection<int, ValidatedEggVariable>
      *
      * @throws ValidationException
      */
-    public function handle(int $egg, array $fields = []): Collection
+    public function validate(Egg $egg, array $fields = [], int $userLevel = User::USER_LEVEL_USER): Collection
     {
-        $query = EggVariable::query()->where('egg_id', $egg);
-        if (!$this->isUserLevel(User::USER_LEVEL_ADMIN)) {
-            // Don't attempt to validate variables if they aren't user editable,
-            // and we're not running this at an admin level.
+        $query = $egg->variables();
+        if ($userLevel !== User::USER_LEVEL_ADMIN) {
             $query = $query->where('user_editable', true)->where('user_viewable', true);
         }
 
-        /** @var \Pterodactyl\Models\EggVariable[] $variables */
         $variables = $query->get();
-
-        $data = $rules = $customAttributes = [];
+        $data = [];
+        $rules = [];
+        $customAttributes = [];
         foreach ($variables as $variable) {
-            $data['environment'][$variable->env_variable] = array_get($fields, $variable->env_variable);
-            $rules['environment.' . $variable->env_variable] = $variable->rules;
-            $customAttributes['environment.' . $variable->env_variable] = trans('validation.internal.variable_value', ['env' => $variable->name]);
+            $data['environment'][$variable->env_variable] = Arr::get($fields, $variable->env_variable);
+            $rules['environment.'.$variable->env_variable] = $variable->rules;
+            $customAttributes['environment.'.$variable->env_variable] = trans('validation.internal.variable_value', ['env' => $variable->name]);
         }
 
-        $validator = $this->validator->make($data, $rules, [], $customAttributes);
-        if ($validator->fails()) {
-            throw new ValidationException($validator);
-        }
+        Validator::make($data, $rules, [], $customAttributes)->validate();
 
-        return Collection::make($variables)->map(function ($item) use ($fields) {
-            return (object) [
-                'id' => $item->id,
-                'key' => $item->env_variable,
-                'value' => $fields[$item->env_variable] ?? null,
-            ];
-        });
+        return $variables->map(fn (EggVariable $item): ValidatedEggVariable => new ValidatedEggVariable(
+            $item->id,
+            $item->env_variable,
+            $fields[$item->env_variable] ?? null,
+        ));
     }
 }

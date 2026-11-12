@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Application\Nodes;
 
 use Pterodactyl\Models\Node;
@@ -7,13 +9,24 @@ use Pterodactyl\Models\Node;
 class UpdateNodeRequest extends StoreNodeRequest
 {
     /**
-     * Apply validation rules to this request. Uses the parent class rules()
-     * function but passes in the rules for updating rather than creating.
+     * Apply validation rules to this request: a node's fields, and whether to rotate its
+     * daemon secret.
+     *
+     * @return ValidationRules
      */
-    public function rules(?array $rules = null): array
+    public function rules(): array
     {
-        $node = $this->parameter('node', Node::class);
+        return [
+            ...parent::rules(),
+            'reset_secret' => ['sometimes', 'boolean'],
+        ];
+    }
 
-        return parent::rules(Node::getRulesForUpdate($node));
+    /**
+     * {@inheritdoc}
+     */
+    protected function extensionFieldsModel(): Node
+    {
+        return $this->parameter('node', Node::class);
     }
 }

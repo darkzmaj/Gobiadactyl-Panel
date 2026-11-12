@@ -1,47 +1,31 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Services\Servers;
 
+use Illuminate\Database\Eloquent\Collection;
+use Pterodactyl\Models\Allocation;
 use Pterodactyl\Models\Mount;
 use Pterodactyl\Models\Server;
+use UnexpectedValueException;
 
 class ServerConfigurationStructureService
 {
-    /**
-     * ServerConfigurationStructureService constructor.
-     */
-    public function __construct(private EnvironmentService $environment)
-    {
-    }
+    public function __construct(private readonly EnvironmentService $environment) {}
 
     /**
-     * Return a configuration array for a specific server when passed a server model.
+     * The server configuration Wings reads. Its shape is a contract with Wings, so it must not
+     * change.
      *
-     * DO NOT MODIFY THIS FUNCTION. This powers legacy code handling for the new Wings
-     * daemon, if you modify the structure eggs will break unexpectedly.
+     * @return array<string, mixed>
      */
-    public function handle(Server $server, array $override = [], bool $legacy = false): array
+    public function forServer(Server $server): array
     {
-        $clone = $server;
-        // If any overrides have been set on this call make sure to update them on the
-        // cloned instance so that the configuration generated uses them.
-        if (!empty($override)) {
-            $clone = $server->fresh();
-            foreach ($override as $key => $value) {
-                $clone->setAttribute($key, $value);
-            }
-        }
+        $server->loadMissing(['egg', 'allocation', 'allocations', 'mounts']);
+        $egg = $server->egg ?? throw new UnexpectedValueException('The server does not have an egg relationship.');
+        $allocation = $server->allocation ?? throw new UnexpectedValueException('The server does not have a primary allocation.');
 
-        return $legacy
-            ? $this->returnLegacyFormat($clone)
-            : $this->returnCurrentFormat($clone);
-    }
-
-    /**
-     * Returns the new data format used for the Wings daemon.
-     */
-    protected function returnCurrentFormat(Server $server): array
-    {
         return [
             'uuid' => $server->uuid,
             'meta' => [
@@ -49,7 +33,7 @@ class ServerConfigurationStructureService
                 'description' => $server->description,
             ],
             'suspended' => $server->isSuspended(),
-            'environment' => $this->environment->handle($server),
+            'environment' => $this->environment->forServer($server),
             'invocation' => $server->startup,
             'skip_egg_scripts' => $server->skip_scripts,
             'build' => [
@@ -63,53 +47,55 @@ class ServerConfigurationStructureService
             ],
             'container' => [
                 'image' => $server->image,
-                // This field is deprecated — use the value in the "build" block.
-                //
-                // TODO: remove this key in V2.
-                'oom_disabled' => $server->oom_disabled,
                 'requires_rebuild' => false,
             ],
             'allocations' => [
-                'force_outgoing_ip' => $server->egg->force_outgoing_ip,
+                'force_outgoing_ip' => $egg->force_outgoing_ip,
                 'default' => [
-                    'ip' => $server->allocation->ip,
-                    'port' => $server->allocation->port,
+                    'ip' => $allocation->ip,
+                    'port' => $allocation->port,
                 ],
                 'mappings' => $server->getAllocationMappings(),
             ],
-            'mounts' => $server->mounts->map(function (Mount $mount) {
-                return [
-                    'source' => $mount->source,
-                    'target' => $mount->target,
-                    'read_only' => $mount->read_only,
-                ];
-            }),
+            'mounts' => $server->mounts->map(fn (Mount $mount): array => [
+                'source' => $mount->source,
+                'target' => $mount->target,
+                'read_only' => $mount->read_only,
+            ])->values()->all(),
             'egg' => [
-                'id' => $server->egg->uuid,
-                'file_denylist' => $server->egg->inherit_file_denylist,
+                'id' => $egg->uuid,
+                'file_denylist' => $egg->inherit_file_denylist,
             ],
         ];
     }
 
     /**
-     * Returns the legacy server data format to continue support for old egg configurations
-     * that have not yet been updated.
+     * The structure the old daemon read, which egg configuration placeholders such as
+     * {{server.build.default.port}} still resolve against.
      *
-     * @deprecated
+     * @return array<string, mixed>
      */
-    protected function returnLegacyFormat(Server $server): array
+    public function legacyForServer(Server $server): array
     {
+        $server->loadMissing(['egg', 'allocation', 'allocations']);
+        $egg = $server->egg ?? throw new UnexpectedValueException('The server does not have an egg relationship.');
+        $allocation = $server->allocation ?? throw new UnexpectedValueException('The server does not have a primary allocation.');
+
         return [
             'uuid' => $server->uuid,
             'build' => [
                 'default' => [
-                    'ip' => $server->allocation->ip,
-                    'port' => $server->allocation->port,
+                    'ip' => $allocation->ip,
+                    'port' => $allocation->port,
                 ],
-                'ports' => $server->allocations->groupBy('ip')->map(function ($item) {
-                    return $item->pluck('port');
-                })->toArray(),
-                'env' => $this->environment->handle($server),
+                'ports' => $server->allocations
+                    ->groupBy('ip')
+                    ->map(fn (Collection $allocations): array => $allocations
+                        ->map(fn (Allocation $allocation): int => $allocation->port)
+                        ->values()
+                        ->all())
+                    ->all(),
+                'env' => $this->environment->forServer($server),
                 'oom_disabled' => $server->oom_disabled,
                 'memory' => (int) $server->memory,
                 'swap' => (int) $server->swap,
@@ -120,7 +106,7 @@ class ServerConfigurationStructureService
                 'image' => $server->image,
             ],
             'service' => [
-                'egg' => $server->egg->uuid,
+                'egg' => $egg->uuid,
                 'skip_scripts' => $server->skip_scripts,
             ],
             'rebuild' => false,

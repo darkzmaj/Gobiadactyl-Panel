@@ -1,0 +1,97 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "gobia-theme",
+    "type": "theme",
+    "name": "Gobia",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0"
+    },
+    "description": "The Gobia look: sidebar shell, sign-in screen, colours, type and components.",
+    "author": "Gobia",
+    "icon": "palette",
+    "ui": {
+        "entry": "dist/client.js"
+    },
+    "theme": {
+        "extends": "classic",
+        "stylesheet": "dist/theme.css",
+        "schemes": [
+            "dark",
+            "light"
+        ],
+        "settings": {
+            "footerCopyrightShow": {
+                "type": "toggle",
+                "label": "Show the copyright line",
+                "default": true,
+                "tab": "Footer"
+            },
+            "footerCopyright": {
+                "type": "text",
+                "label": "Copyright text",
+                "help": "The line at the bottom of every page.",
+                "default": "© 2026 Maj Kovačič. All Rights Reserved.",
+                "maxLength": 200,
+                "tab": "Footer"
+            },
+            "footerSponsorShow": {
+                "type": "toggle",
+                "label": "Show the sponsor line",
+                "default": true,
+                "tab": "Footer"
+            },
+            "footerSponsorLabel": {
+                "type": "text",
+                "label": "Sponsor label",
+                "default": "Project Sponsored by:",
+                "maxLength": 80,
+                "tab": "Footer"
+            },
+            "footerSponsorName": {
+                "type": "text",
+                "label": "Sponsor name",
+                "default": "NCSE NETWORK",
+                "maxLength": 80,
+                "tab": "Footer"
+            },
+            "footerSponsorUrl": {
+                "type": "text",
+                "label": "Sponsor link",
+                "help": "An https:// or http:// address; anything else shows the name without a link.",
+                "default": "https://ncse.tw/zh/",
+                "maxLength": 255,
+                "tab": "Footer"
+            },
+            "sidebarCardShow": {
+                "type": "toggle",
+                "label": "Show the card at the bottom of the sidebar",
+                "default": true,
+                "tab": "Sidebar"
+            },
+            "sidebarCardTitle": {
+                "type": "text",
+                "label": "Card title",
+                "help": "Empty uses the panel name.",
+                "default": "",
+                "maxLength": 60,
+                "tab": "Sidebar"
+            },
+            "sidebarCardText": {
+                "type": "text",
+                "label": "Card description",
+                "help": "In the admin area the card reads \"Back to instances\" instead.",
+                "default": "Beyond The Clouds",
+                "maxLength": 80,
+                "tab": "Sidebar"
+            },
+            "sidebarCardLogo": {
+                "type": "image",
+                "label": "Card logo",
+                "help": "Empty uses the Gobia icon.",
+                "tab": "Sidebar"
+            }
+        }
+    }
+}

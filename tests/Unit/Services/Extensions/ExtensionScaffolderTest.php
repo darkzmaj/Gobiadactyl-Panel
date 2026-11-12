@@ -1,0 +1,256 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pterodactyl\Tests\Pest\Unit\Services\Extensions\ExtensionScaffolderTest;
+
+use Illuminate\Support\Facades\File;
+use Pterodactyl\Exceptions\Extensions\InvalidExtensionException;
+use Pterodactyl\Services\Extensions\ExtensionManifest;
+use Pterodactyl\Services\Extensions\ExtensionManifestValidator;
+use Pterodactyl\Services\Extensions\ExtensionRepository;
+use Pterodactyl\Services\Extensions\Scaffolding\ExtensionScaffolder;
+use Pterodactyl\Tests\TestCase;
+
+uses(TestCase::class);
+beforeEach(function (): void {
+    $this->directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'ptero-scaffolder-'.uniqid();
+    $this->scaffolder = app(ExtensionScaffolder::class);
+    File::ensureDirectoryExists($this->directory);
+});
+afterEach(function (): void {
+    File::deleteDirectory($this->directory);
+});
+test('scaffolds a theme with a stylesheet, a layout override, a skin, settings and a test', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'aurora', outDir: $this->directory, theme: true);
+    $manifest = (new ExtensionManifestValidator)->fromDirectory($target);
+
+    expect($manifest->isTheme())->toBeTrue()
+        ->and($manifest->uiPrefix)->toBeNull()
+        ->and($manifest->provider)->toBeNull()
+        ->and($manifest->requirements['sdk'] ?? null)->toBe('>='.config('extensions.sdk_version').' <3.0')
+        ->and($manifest->theme->stylesheet)->toBe('dist/theme.css')
+        ->and($manifest->theme->schemes)->toBe(['dark', 'light'])
+        ->and(array_keys($manifest->theme->settings))->toBe(['accent', 'radius', 'compact', 'logo'])
+        ->and($manifest->theme->settings['accent']->token)->toBe('--aurora-accent');
+    expect($this->scaffolder->files())->toBe(['extension.json', 'package.json', 'vite.config.mjs', 'postcss.config.mjs', 'tsconfig.json', 'vitest.config.mjs', 'src/theme.css', 'src/theme.tsx', 'src/skins.ts', 'src/views/AppLayout.tsx', 'src/theme.spec.tsx', '.gitignore', 'README.md']);
+    expect(File::get($target.'/vite.config.mjs'))->toContain("defineThemeConfig({ entry: 'src/theme.tsx', stylesheet: 'src/theme.css' })");
+    expect(File::get($target.'/src/theme.css'))->toStartWith('/*')->toContain("@import '@pterodactyl/sdk/theme-entry.css';", 'var(--aurora-accent', '.light {', "[data-aurora-compact='true']");
+    expect(File::get($target.'/src/theme.tsx'))->toContain("'layout.app': AppLayout", 'ui: skins');
+    expect(File::get($target.'/src/skins.ts'))->toContain("skin('Button'", "root: (state, below) => below('ring-1");
+    expect(File::get($target.'/src/views/AppLayout.tsx'))->toContain("data-aurora-layout=''", '<Default />');
+    expect(File::get($target.'/src/theme.spec.tsx'))->toContain('preloadTheme(themes)', "renderView('layout.app', { themes, fixture: 'admin' })", '[data-aurora-layout] main');
+    expect(File::get($target.'/README.md'))->toContain('@pterodactyl/sdk/THEMES.md', 'Level 1', 'p:extension:dev . --watch')->not->toContain('{{');
+
+    $package = File::json($target.'/package.json');
+    expect($package['devDependencies'])->toHaveKeys(['@pterodactyl/sdk', 'tailwindcss', '@tailwindcss/forms'])
+        ->and($package['scripts'])->toHaveKeys(['build', 'dev', 'typecheck', 'test', 'doctor', 'types', 'pack'])
+        ->and($package['scripts']['doctor'])->toMatch('~^php \S+/artisan p:extension:doctor \.$~')
+        // A re-pack after a fix replaces the archive, which git ignores.
+        ->and($package['scripts']['pack'])->toEndWith('p:extension:pack . --force');
+    expect(File::get($target.'/.gitignore'))->toContain('*.pteroext');
+    // The scripts reach the panel's artisan from the package directory.
+    preg_match('~^php (\S+) ~', $package['scripts']['doctor'], $doctor);
+    expect(realpath(str_starts_with($doctor[1], '/') ? $doctor[1] : $target.'/'.$doctor[1]))->toBe(realpath(base_path('artisan')));
+    expect($target.'/composer.json')->not->toBeFile();
+});
+
+test('scaffolds a theme of css alone, with no javascript entry', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'sunrise', outDir: $this->directory, theme: true, cssOnly: true);
+    $manifest = (new ExtensionManifestValidator)->fromDirectory($target);
+
+    expect($manifest->isTheme())->toBeTrue()
+        ->and($manifest->hasUi())->toBeFalse()
+        ->and(File::json($target.'/extension.json'))->not->toHaveKey('ui')
+        ->and($manifest->theme->stylesheet)->toBe('dist/theme.css')
+        ->and(array_keys($manifest->theme->settings))->toBe(['accent', 'radius', 'compact', 'logo']);
+    expect($this->scaffolder->files())->toBe(['extension.json', 'package.json', 'vite.config.mjs', 'postcss.config.mjs', 'src/theme.css', '.gitignore', 'README.md']);
+    expect(File::get($target.'/vite.config.mjs'))->toContain("defineThemeConfig({ stylesheet: 'src/theme.css' })")->not->toContain('entry:');
+    expect(File::get($target.'/src/theme.css'))->toContain("@import '@pterodactyl/sdk/theme-entry.css';", 'var(--sunrise-accent');
+    expect(File::get($target.'/README.md'))->toContain('--css-only', 'Level 1', 'p:extension:dev . --watch')->not->toContain('{{', 'src/theme.tsx');
+
+    $package = File::json($target.'/package.json');
+    expect(array_keys($package['scripts']))->toBe(['build', 'dev', 'doctor', 'pack'])
+        ->and($package['devDependencies'])->toHaveKeys(['@pterodactyl/sdk', 'vite', 'tailwindcss', '@tailwindcss/forms', '@tailwindcss/postcss'])
+        ->and($package['devDependencies'])->not->toHaveKey('react');
+});
+
+test('scaffolds a child theme that starts as the theme it extends', function (): void {
+    config(['extensions.directory' => $this->directory.'/installed']);
+    foreach (['nebula' => 'classic', 'aurora' => 'nebula'] as $id => $parent) {
+        File::ensureDirectoryExists($this->directory.'/installed/'.$id);
+        File::put($this->directory.'/installed/'.$id.'/extension.json', json_encode(['id' => $id, 'type' => 'theme', 'name' => ucfirst($id), 'version' => '1.2.0', 'theme' => ['extends' => $parent]], JSON_THROW_ON_ERROR));
+    }
+
+    app(ExtensionRepository::class)->flushDiscovery();
+
+    $this->artisan('p:extension:make', ['id' => 'midnight', '--theme' => true, '--extends' => 'aurora'])->assertSuccessful();
+    $target = $this->directory.'/installed/midnight';
+    $manifest = (new ExtensionManifestValidator)->fromDirectory($target);
+
+    expect($manifest->theme->extends)->toBe('aurora')
+        ->and($manifest->theme->settings)->toBe([])
+        ->and($manifest->theme->schemes)->toBeNull()
+        ->and($manifest->requiredExtensions)->toBe(['aurora' => '^1.2.0']);
+    expect(File::allFiles($target, hidden: true))->toHaveCount(11)
+        ->and($target.'/src/skins.ts')->not->toBeFile()
+        ->and($target.'/src/views')->not->toBeDirectory();
+    expect(File::get($target.'/src/theme.css'))->toContain("@import '@pterodactyl/sdk/theme-entry.css';")->not->toContain('{');
+    expect(File::get($target.'/src/theme.tsx'))->toContain('export default defineTheme({});');
+    // Its tests stack the whole chain, which the test aliases find where the build does.
+    expect(File::get($target.'/src/theme.spec.tsx'))->toContain("import nebula from 'nebula/dist/client.js';\nimport aurora from 'aurora/dist/client.js';", 'const themes = [nebula, aurora, theme];', "renderView('dashboard.serverCard', { themes");
+    expect(File::get($target.'/vite.config.mjs'))->toContain("defineThemeConfig({ entry: 'src/theme.tsx', stylesheet: 'src/theme.css', extensions: '..' })");
+    expect(File::get($target.'/vitest.config.mjs'))->toContain("pterodactylTestAliases({ extensions: '..' })");
+    expect(File::get($target.'/README.md'))->toContain('extends Aurora', '--extends=aurora', 'themes: [nebula, aurora, theme]')->not->toContain('{{');
+
+    $this->artisan('p:extension:make', ['id' => 'pale', '--theme' => true, '--css-only' => true, '--extends' => 'aurora', '--out' => $this->directory])->assertSuccessful();
+    expect(File::get($this->directory.'/pale/vite.config.mjs'))->toContain("defineThemeConfig({ stylesheet: 'src/theme.css', extensions: '../installed' })")
+        ->and($this->directory.'/pale/src/theme.spec.tsx')->not->toBeFile()
+        ->and(File::get($this->directory.'/pale/README.md'))->not->toContain('src/theme.tsx', '{{');
+
+    $this->artisan('p:extension:make', ['id' => 'plain', '--extends' => 'aurora', '--out' => $this->directory])->expectsOutputToContain('pass it with --theme')->assertFailed();
+    $this->artisan('p:extension:make', ['id' => 'loop', '--theme' => true, '--extends' => 'loop', '--out' => $this->directory])->expectsOutputToContain('names the theme to build on')->assertFailed();
+});
+
+test('takes --css-only from the command, and only with --theme', function (): void {
+    $this->artisan('p:extension:make', ['id' => 'sunrise', '--theme' => true, '--css-only' => true, '--out' => $this->directory])->assertSuccessful();
+    expect($this->directory.'/sunrise/src/theme.css')->toBeFile()
+        ->and($this->directory.'/sunrise/src/theme.tsx')->not->toBeFile();
+
+    $this->artisan('p:extension:make', ['id' => 'plain', '--css-only' => true, '--out' => $this->directory])
+        ->expectsOutputToContain('pass it with --theme')
+        ->assertFailed();
+    expect($this->directory.'/plain')->not->toBeDirectory();
+});
+
+test('scaffolds an installable package', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'my-widget', description: 'A test widget.', author: 'Tester', outDir: $this->directory);
+    $manifest = (new ExtensionManifestValidator)->fromDirectory($target);
+    expect($manifest->id)->toBe('my-widget');
+    expect($manifest->name)->toBe('My Widget');
+    expect($manifest->description)->toBe('A test widget.');
+    expect($manifest->author)->toBe('Tester');
+    expect($manifest->provider)->toBe('MyWidget\MyWidgetProvider');
+    expect($manifest->autoload)->toBe(['MyWidget\\' => 'src']);
+    // The PSR-4 map lives where Composer and editors read it, with an autoloader of its own.
+    expect(File::json($target.'/extension.json'))->not->toHaveKey('autoload');
+    expect(File::json($target.'/composer.json'))->toBe([
+        'description' => 'A test widget.',
+        'autoload' => ['psr-4' => ['MyWidget\\' => 'src/']],
+        'config' => ['autoloader-suffix' => 'MyWidgetExtension'],
+    ]);
+    expect(File::get($target.'/.gitignore'))->toContain('/vendor/');
+    expect($manifest->hasUi())->toBeTrue();
+    expect($manifest->screens)->toBe([['id' => 'main', 'area' => 'server', 'path' => 'my-widget', 'nav' => ['label' => 'My Widget']]]);
+
+    $provider = (string) file_get_contents($target.'/src/MyWidgetProvider.php');
+    $this->assertStringContainsString('namespace MyWidget;', $provider);
+    $this->assertStringContainsString('class MyWidgetProvider extends ExtensionProvider', $provider);
+    $this->assertStringContainsString('$this->registerApiRoutes();', $provider);
+    $controller = (string) file_get_contents($target.'/src/Http/Controllers/StatusController.php');
+    $this->assertStringContainsString('namespace MyWidget\Http\Controllers;', $controller);
+    $this->assertStringContainsString("#[Endpoint('Get status'", $controller);
+    $this->assertStringContainsString('use MyWidget\Http\Controllers\StatusController;', (string) file_get_contents($target.'/routes/client.php'));
+    foreach (['src/client/index.tsx', 'src/client/screens/ServerScreen.tsx', 'vite.config.mjs', 'tsconfig.json', 'README.md', '.gitignore', 'vitest.config.mjs', 'src/client/screens/ServerScreen.spec.tsx', 'openapi-ts.config.ts', '.github/workflows/ci.yml', 'postcss.config.mjs', 'src/client/styles.css'] as $file) {
+        expect($target.'/'.$file)->toBeFile();
+    }
+
+    // Utilities carry the extension's own prefix so they cannot collide with the panel's build or another extension's.
+    expect($manifest->uiPrefix)->toBe('mw');
+    expect(File::json($target.'/extension.json')['ui']['prefix'])->toBe('mw');
+    expect(File::get($target.'/src/client/styles.css'))->toContain(
+        "@import 'tailwindcss/theme.css' layer(theme) prefix(mw);",
+        "@import 'tailwindcss/utilities.css' layer(utilities) prefix(mw);",
+        "@import '@pterodactyl/sdk/theme.css';",
+    );
+    expect(File::get($target.'/src/client/screens/ServerScreen.tsx'))->toContain("className={'mw:text-sm mw:text-muted-foreground'}");
+    expect(File::get($target.'/README.md'))->toContain('`mw:flex`', "prefix: 'mw'")->not->toContain('{{prefix}}', 'ext:');
+    expect($target.'/database/migrations')->toBeDirectory();
+    $package = File::json($target.'/package.json');
+    expect($package['name'])->toBe('my-widget');
+    expect($package['devDependencies'])->toHaveKey('@pterodactyl/sdk');
+    // The SDK is a file: link here, so its peer types must resolve from this package.
+    expect(File::json($target.'/tsconfig.json')['compilerOptions']['preserveSymlinks'])->toBeTrue();
+});
+test('the scaffolded readme does not describe an api manifest field', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'readme-check', outDir: $this->directory);
+
+    expect((string) file_get_contents($target.'/README.md'))->not->toContain('`api`');
+});
+test('generated php has valid syntax', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'syntax-check', outDir: $this->directory);
+    foreach (File::allFiles($target) as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+
+        exec(sprintf('%s -l %s 2>&1', escapeshellarg(PHP_BINARY), escapeshellarg($file->getPathname())), $output, $status);
+        expect($status)->toBe(0, implode("\n", $output));
+    }
+});
+test('no ui skips the frontend scaffold', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'backend-only', ui: false, outDir: $this->directory);
+    expect((new ExtensionManifestValidator)->fromDirectory($target)->hasUi())->toBeFalse();
+    $this->assertFileDoesNotExist($target.'/package.json');
+    $this->assertFileDoesNotExist($target.'/vite.config.mjs');
+    $this->assertDirectoryDoesNotExist($target.'/src/client');
+    $this->assertStringNotContainsString('## Frontend', (string) file_get_contents($target.'/README.md'));
+});
+test('rejects invalid and reserved ids', function (): void {
+    foreach (['Bad_Id', '9starts-with-digit', 'panel'] as $id) {
+        try {
+            $this->scaffolder->scaffold(id: $id, outDir: $this->directory);
+            $this->fail("Expected id \"{$id}\" to be rejected.");
+        } catch (InvalidExtensionException) {
+            $this->addToAssertionCount(1);
+        }
+    }
+});
+test('derives a usable tailwind prefix from the id', function (string $id, string $prefix): void {
+    expect(ExtensionManifest::defaultUiPrefix($id))->toBe($prefix);
+    expect(ExtensionManifest::isUsableUiPrefix($prefix))->toBeTrue();
+})->with([
+    'initials' => ['hello-world', 'hw'],
+    'three words' => ['server-importer-pro', 'sip'],
+    'one word' => ['backups', 'backups'],
+    'digits are dropped' => ['s3-backups-2', 'sb'],
+    'long word is shortened' => ['internationalisation', 'internationa'],
+    'reserved initials fall back to the letters' => ['small-maps', 'smallmaps'],
+    'reserved word' => ['dark', 'darkui'],
+    'reserved word that fills the length' => ['perspective', 'perspectivui'],
+    'single letter' => ['a', 'aui'],
+    'single letters' => ['x-9', 'xui'],
+]);
+test('writes a chosen tailwind prefix to the manifest, the stylesheet and the stubbed classes', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'my-widget', outDir: $this->directory, prefix: 'widget');
+
+    expect((new ExtensionManifestValidator)->fromDirectory($target)->uiPrefix)->toBe('widget');
+    expect(File::get($target.'/src/client/styles.css'))->toContain('layer(theme) prefix(widget);', 'layer(utilities) prefix(widget);');
+    expect(File::get($target.'/src/client/screens/ServerScreen.tsx'))->toContain("className={'widget:text-sm widget:text-muted-foreground'}");
+
+    $this->artisan('p:extension:make', ['id' => 'from-command', '--out' => $this->directory, '--prefix' => 'fc'])->assertSuccessful();
+    expect(File::json($this->directory.'/from-command/extension.json')['ui']['prefix'])->toBe('fc');
+});
+test('rejects malformed and reserved tailwind prefixes before writing anything', function (string $prefix): void {
+    expect(fn () => $this->scaffolder->scaffold(id: 'my-widget', outDir: $this->directory, prefix: $prefix))
+        ->toThrow(InvalidExtensionException::class, "Tailwind prefix \"{$prefix}\" must match /^[a-z]{2,12}$/D");
+    expect($this->directory.'/my-widget')->not->toBeDirectory();
+    $this->artisan('p:extension:make', ['id' => 'my-widget', '--out' => $this->directory, '--prefix' => $prefix])->assertFailed();
+})->with(['a', 'My', 'my-widget', 'w2', 'toolongtobeaprefix', 'sm', 'dark', 'hover', 'group', 'tw', 'color']);
+test('scaffolds into a directory named after the id under --out', function (): void {
+    $this->artisan('p:extension:make', ['id' => 'nebula', '--theme' => true, '--out' => $this->directory.'/themes'])->assertSuccessful();
+    expect($this->directory.'/themes/nebula/extension.json')->toBeFile();
+});
+test('refuses to overwrite without force', function (): void {
+    $this->scaffolder->scaffold(id: 'twice', outDir: $this->directory);
+    $this->expectException(InvalidExtensionException::class);
+    $this->expectExceptionMessage('--force');
+    $this->scaffolder->scaffold(id: 'twice', outDir: $this->directory);
+});
+test('force overwrites an existing scaffold', function (): void {
+    $target = $this->scaffolder->scaffold(id: 'twice', outDir: $this->directory);
+    File::put($target.'/leftover.txt', 'stale');
+    $this->scaffolder->scaffold(id: 'twice', outDir: $this->directory, force: true);
+    $this->assertFileDoesNotExist($target.'/leftover.txt');
+    expect($target.'/extension.json')->toBeFile();
+});

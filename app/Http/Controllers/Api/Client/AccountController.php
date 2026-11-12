@@ -1,127 +1,72 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Controllers\Api\Client;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Auth\AuthManager;
-use Illuminate\Http\JsonResponse;
+use Knuckles\Scribe\Attributes\BodyParam;
+use Knuckles\Scribe\Attributes\Endpoint;
+use Knuckles\Scribe\Attributes\Group;
+use Knuckles\Scribe\Attributes\Response as ScribeResponse;
+use Knuckles\Scribe\Attributes\Subgroup;
+use Pterodactyl\Contracts\Users\ReplacesUserAvatars;
+use Pterodactyl\Contracts\Users\UpdatesUserEmails;
+use Pterodactyl\Contracts\Users\UpdatesUserPasswords;
+use Pterodactyl\Extensions\Scribe\Attributes\ResponseFromResource;
 use Pterodactyl\Facades\Activity;
-use Illuminate\Support\Facades\RateLimiter;
-use Pterodactyl\Services\Media\AvatarService;
-use Pterodactyl\Services\Users\UserUpdateService;
-use Pterodactyl\Transformers\Api\Client\AccountTransformer;
-use Pterodactyl\Http\Requests\Api\Client\Account\UpdateEmailRequest;
+use Pterodactyl\Http\Requests\Api\Client\Account\DeleteAvatarRequest;
 use Pterodactyl\Http\Requests\Api\Client\Account\UpdateAvatarRequest;
+use Pterodactyl\Http\Requests\Api\Client\Account\UpdateEmailRequest;
 use Pterodactyl\Http\Requests\Api\Client\Account\UpdatePasswordRequest;
-use Pterodactyl\Http\Requests\Api\Client\Account\UpdateUsernameRequest;
-use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
+use Pterodactyl\Http\Resources\Api\Client\AccountResource;
+use Pterodactyl\Models\User;
+use Throwable;
 
+#[Group('Client API', 'Endpoints authenticated as a panel user using a client API token.')]
+#[Subgroup('Account', 'View and update the authenticated user account.')]
 class AccountController extends ClientApiController
 {
-    /**
-     * The number of seconds that must elapse before the email change throttle resets.
-     */
-    private const EMAIL_UPDATE_THROTTLE = 60 * 60 * 24;
+    private const array INVALID_PASSWORD_ERROR = [
+        'errors' => [
+            [
+                'code' => 'InvalidPasswordProvidedException',
+                'status' => '400',
+                'detail' => 'The password provided was invalid for this account.',
+            ],
+        ],
+    ];
 
-    /**
-     * Usernames are login names that other people see in activity logs, so they may only change a few times a day.
-     */
-    private const USERNAME_UPDATE_LIMIT = 3;
+    private const array THROTTLED_ERROR = [
+        'errors' => [
+            [
+                'code' => 'TooManyRequestsHttpException',
+                'status' => '429',
+                'detail' => 'Your email address has been changed too many times today. Please try again later.',
+            ],
+        ],
+    ];
 
-    /**
-     * AccountController constructor.
-     */
-    public function __construct(
-        private AuthManager $manager,
-        private UserUpdateService $updateService,
-        private AvatarService $avatarService,
-    ) {
-        parent::__construct();
-    }
-
-    public function index(Request $request): array
+    #[Endpoint('Get account', 'Returns profile details for the authenticated user.')]
+    #[ResponseFromResource(AccountResource::class, User::class, resourceKey: 'user')]
+    public function index(Request $request): AccountResource
     {
-        return $this->fractal->item($request->user())
-            ->transformWith($this->getTransformer(AccountTransformer::class))
-            ->toArray();
+        return AccountResource::make($request->user());
     }
 
     /**
      * Update the authenticated user's email address.
      */
-    public function updateEmail(UpdateEmailRequest $request): JsonResponse
+    #[Endpoint('Update account email', "Updates the authenticated user's email address after verifying their current password.")]
+    #[BodyParam('password', 'string', 'The current account password.', required: true, example: 'current-password')]
+    #[ScribeResponse(status: 204, description: 'Email address updated.')]
+    #[ScribeResponse(self::INVALID_PASSWORD_ERROR, status: 400, description: 'The current password is invalid.')]
+    #[ScribeResponse(self::THROTTLED_ERROR, status: 429, description: 'The account has changed email too many times in the current throttle window.')]
+    public function updateEmail(UpdateEmailRequest $request, UpdatesUserEmails $emails): JsonResponse
     {
-        $user = $request->user();
-        // Only allow a user to change their email three times in the span
-        // of 24 hours. This prevents malicious users from trying to find
-        // existing accounts in the system by constantly changing their email.
-        if (RateLimiter::tooManyAttempts($key = "user:update-email:{$user->uuid}", 3)) {
-            throw new TooManyRequestsHttpException(message: 'Your email address has been changed too many times today. Please try again later.');
-        }
-
-        $original = $user->email;
-        if (mb_strtolower($original) !== mb_strtolower($request->validated('email'))) {
-            RateLimiter::hit($key, self::EMAIL_UPDATE_THROTTLE);
-
-            $this->updateService->handle($user, $request->validated());
-
-            Activity::event('user:account.email-changed')
-                ->property(['old' => $original, 'new' => $request->validated('email')])
-                ->log();
-        }
-
-        return new JsonResponse([], Response::HTTP_NO_CONTENT);
-    }
-
-    /**
-     * Update the authenticated user's username. Everything else in the system refers to
-     * a user by their immutable ID or UUID, so no other records depend on the username.
-     */
-    public function updateUsername(UpdateUsernameRequest $request): JsonResponse
-    {
-        $key = 'user:update-username:' . $request->user()->uuid;
-        if (RateLimiter::tooManyAttempts($key, self::USERNAME_UPDATE_LIMIT)) {
-            throw new TooManyRequestsHttpException(message: 'Your username has been changed too many times today. Please try again later.');
-        }
-
-        $original = $request->user()->username;
-        $user = $this->updateService->handle($request->user(), $request->validated());
-
-        if ($original !== $user->username) {
-            // Only real changes count; submitting the current username again is a no-op.
-            RateLimiter::hit($key, self::EMAIL_UPDATE_THROTTLE);
-
-            Activity::event('user:account.username-changed')
-                ->property(['old' => $original, 'new' => $user->username])
-                ->log();
-        }
-
-        return new JsonResponse(['username' => $user->username]);
-    }
-
-    /**
-     * Replace the authenticated user's profile picture.
-     *
-     * @throws \Pterodactyl\Exceptions\DisplayException
-     */
-    public function updateAvatar(UpdateAvatarRequest $request): JsonResponse
-    {
-        $user = $this->avatarService->store($request->user(), $request->file('avatar'));
-
-        Activity::event('user:account.avatar-changed')->log();
-
-        return new JsonResponse(['avatar_url' => $user->avatar_url]);
-    }
-
-    /**
-     * Remove the authenticated user's profile picture.
-     */
-    public function deleteAvatar(Request $request): JsonResponse
-    {
-        $this->avatarService->remove($request->user());
-
-        Activity::event('user:account.avatar-removed')->log();
+        $emails->update($request->user(), $request->string('email')->toString());
 
         return new JsonResponse([], Response::HTTP_NO_CONTENT);
     }
@@ -130,25 +75,39 @@ class AccountController extends ClientApiController
      * Update the authenticated user's password. All existing sessions will be logged
      * out immediately.
      *
-     * @throws \Throwable
+     * @throws Throwable
      */
-    public function updatePassword(UpdatePasswordRequest $request): JsonResponse
+    #[Endpoint('Update account password', "Updates the authenticated user's password and revokes other active sessions where supported.")]
+    #[BodyParam('current_password', 'string', 'The current account password.', required: true, example: 'current-password')]
+    #[BodyParam('password_confirmation', 'string', 'Confirmation matching the new password.', required: true, example: 'correct-horse-battery-staple')]
+    #[ScribeResponse(status: 204, description: 'Password updated.')]
+    #[ScribeResponse(self::INVALID_PASSWORD_ERROR, status: 400, description: 'The current password is invalid.')]
+    public function updatePassword(UpdatePasswordRequest $request, UpdatesUserPasswords $passwords): JsonResponse
     {
-        $user = Activity::event('user:account.password-changed')->transaction(function () use ($request) {
-            return $this->updateService->handle($request->user(), $request->validated());
-        });
+        $passwords->update($request->user(), $request->string('password')->toString());
 
-        $guard = $this->manager->guard();
-        // If you do not update the user in the session you'll end up working with a
-        // cached copy of the user that does not include the updated password. Do this
-        // to correctly store the new user details in the guard and allow the logout
-        // other devices functionality to work.
-        $guard->setUser($user);
+        return new JsonResponse([], Response::HTTP_NO_CONTENT);
+    }
 
-        // This method doesn't exist in the stateless Sanctum world.
-        if (method_exists($guard, 'logoutOtherDevices')) { // @phpstan-ignore function.alreadyNarrowedType
-            $guard->logoutOtherDevices($request->input('password'));
-        }
+    #[Endpoint('Update account avatar', "Stores the uploaded image as the authenticated user's avatar and deletes the one it replaces.")]
+    #[BodyParam('avatar', 'file', 'PNG, JPEG, SVG, WebP, AVIF or ICO image of at most 10 MiB.', required: true)]
+    #[ResponseFromResource(AccountResource::class, User::class, description: 'Avatar updated.', resourceKey: 'user')]
+    public function updateAvatar(UpdateAvatarRequest $request, ReplacesUserAvatars $avatars): AccountResource
+    {
+        $user = $avatars->replace($request->user(), $request->avatar());
+
+        Activity::event('user:account.avatar-changed')->subject($user)->log();
+
+        return AccountResource::make($user);
+    }
+
+    #[Endpoint('Delete account avatar', "Deletes the authenticated user's avatar.")]
+    #[ScribeResponse(status: 204, description: 'Avatar deleted.')]
+    public function deleteAvatar(DeleteAvatarRequest $request, ReplacesUserAvatars $avatars): JsonResponse
+    {
+        $user = $avatars->replace($request->user(), null);
+
+        Activity::event('user:account.avatar-deleted')->subject($user)->log();
 
         return new JsonResponse([], Response::HTTP_NO_CONTENT);
     }

@@ -1,13 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Listeners;
 
-use Pterodactyl\Facades\Activity;
 use Illuminate\Auth\Events\Failed;
-use Pterodactyl\Events\Auth\DirectLogin;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Contracts\Events\Dispatcher;
+use Pterodactyl\Events\Auth\DirectLogin;
 use Pterodactyl\Extensions\Illuminate\Events\Contracts\SubscribesToEvents;
+use Pterodactyl\Facades\Activity;
 
 class AuthenticationListener implements SubscribesToEvents
 {
@@ -33,13 +35,13 @@ class AuthenticationListener implements SubscribesToEvents
 
     public function reset(PasswordReset $event): void
     {
-        Activity::event('event:password-reset')->withRequestMetadata()->subject($event->user)->log();
+        Activity::event('auth:password-reset')->withRequestMetadata()->subject($event->user)->log();
     }
 
     public function subscribe(Dispatcher $events): void
     {
-        $events->listen(Failed::class, [self::class, 'login']);
-        $events->listen(DirectLogin::class, [self::class, 'login']);
-        $events->listen(PasswordReset::class, [self::class, 'reset']);
+        $events->listen(Failed::class, self::login(...));
+        $events->listen(DirectLogin::class, self::login(...));
+        $events->listen(PasswordReset::class, self::reset(...));
     }
 }

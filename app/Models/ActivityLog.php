@@ -1,93 +1,69 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Models;
 
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Event;
-use Pterodactyl\Events\ActivityLogged;
+use Database\Factories\ActivityLogFactory;
+use Illuminate\Database\Eloquent\Attributes\Guarded;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
+use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\MassPrunable;
-use Pterodactyl\Contracts\Models\Identifiable;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Pterodactyl\Models\Traits\HasRealtimeIdentifier;
 use Illuminate\Database\Eloquent\Model as IlluminateModel;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Event;
+use LogicException;
+use Pterodactyl\Contracts\Models\Identifiable;
+use Pterodactyl\Events\ActivityLogged;
+use Pterodactyl\Models\Builders\ActivityLogBuilder;
+use Pterodactyl\Models\Traits\HasRealtimeIdentifier;
 
 /**
- * \Pterodactyl\Models\ActivityLog.
- *
- * @property int $id
- * @property string|null $batch
- * @property string $event
- * @property string $ip
- * @property string|null $description
- * @property string|null $actor_type
- * @property int|null $actor_id
- * @property int|null $api_key_id
- * @property \Illuminate\Support\Collection|null $properties
- * @property Carbon $timestamp
- * @property IlluminateModel|\Eloquent $actor
- * @property \Illuminate\Database\Eloquent\Collection<int, \Pterodactyl\Models\ActivityLogSubject> $subjects
- * @property int|null $subjects_count
- * @property ApiKey|null $apiKey
- *
- * @method static Builder|ActivityLog forActor(\Illuminate\Database\Eloquent\Model $actor)
- * @method static Builder|ActivityLog forEvent(string $action)
- * @method static Builder|ActivityLog newModelQuery()
- * @method static Builder|ActivityLog newQuery()
- * @method static Builder|ActivityLog query()
- * @method static Builder|ActivityLog whereActorId($value)
- * @method static Builder|ActivityLog whereActorType($value)
- * @method static Builder|ActivityLog whereApiKeyId($value)
- * @method static Builder|ActivityLog whereBatch($value)
- * @method static Builder|ActivityLog whereDescription($value)
- * @method static Builder|ActivityLog whereEvent($value)
- * @method static Builder|ActivityLog whereId($value)
- * @method static Builder|ActivityLog whereIp($value)
- * @method static Builder|ActivityLog whereProperties($value)
- * @method static Builder|ActivityLog whereTimestamp($value)
- *
- * @mixin \Eloquent
+ * @property Collection<string, mixed> $properties
  */
 #[Attributes\Identifiable('actl')]
+#[Guarded([
+    'id',
+    'timestamp',
+])]
+#[WithoutTimestamps]
+#[UseEloquentBuilder(ActivityLogBuilder::class)]
 class ActivityLog extends Model implements Identifiable
 {
-    use MassPrunable;
-    use HasRealtimeIdentifier;
+    /** @use HasFactory<ActivityLogFactory> */
+    use HasFactory;
 
-    public const RESOURCE_NAME = 'activity_log';
+    use HasRealtimeIdentifier;
+    use MassPrunable;
+
+    public const string RESOURCE_NAME = 'activity_log';
 
     /**
      * Tracks all the events we no longer wish to display to users. These are either legacy
      * events or just events where we never ended up using the associated data.
      */
-    public const DISABLED_EVENTS = ['server:file.upload'];
-
-    public $timestamps = false;
-
-    protected $guarded = [
-        'id',
-        'timestamp',
-    ];
-
-    protected $casts = [
-        'properties' => 'collection',
-        'timestamp' => 'datetime',
-    ];
+    public const array DISABLED_EVENTS = ['server:file.upload'];
 
     protected $with = ['subjects'];
 
-    public static array $validationRules = [
-        'event' => ['required', 'string'],
-        'batch' => ['nullable', 'uuid'],
-        'ip' => ['required', 'string'],
-        'description' => ['nullable', 'string'],
-        'properties' => ['array'],
-    ];
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'properties' => 'collection',
+            'timestamp' => 'datetime',
+        ];
+    }
 
     /**
-     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, $this>
+     * @return MorphTo<IlluminateModel, $this>
      */
     public function actor(): MorphTo
     {
@@ -100,7 +76,7 @@ class ActivityLog extends Model implements Identifiable
     }
 
     /**
-     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\Pterodactyl\Models\ActivityLogSubject, $this>
+     * @return HasMany<ActivityLogSubject, $this>
      */
     public function subjects(): HasMany
     {
@@ -108,49 +84,35 @@ class ActivityLog extends Model implements Identifiable
     }
 
     /**
-     * @return \Illuminate\Database\Eloquent\Relations\HasOne<\Pterodactyl\Models\ApiKey, $this>
+     * @return HasOne<ApiKey, $this>
      */
     public function apiKey(): HasOne
     {
         return $this->hasOne(ApiKey::class, 'id', 'api_key_id');
     }
 
-    public function scopeForEvent(Builder $builder, string $action): Builder
+    /** @return array<string, mixed> */
+    public function propertyValues(): array
     {
-        return $builder->where('event', $action);
+        return $this->properties->all();
     }
 
     /**
-     * Scopes a query to only return results where the actor is a given model.
+     * @return Builder<static>
      */
-    public function scopeForActor(Builder $builder, IlluminateModel $actor): Builder
+    public function prunable(): Builder
     {
-        return $builder->whereMorphedTo('actor', $actor);
+        $days = config('activity.prune_days');
+        throw_unless($days > 0, LogicException::class, 'Cannot prune activity logs: no "prune_days" configuration value is set.');
+
+        return static::query()->where('timestamp', '<=', now()->subDays($days));
     }
 
-    /**
-     * Returns models to be pruned.
-     *
-     * @see https://laravel.com/docs/9.x/eloquent#pruning-models
-     */
-    public function prunable()
-    {
-        if (is_null(config('activity.prune_days'))) {
-            throw new \LogicException('Cannot prune activity logs: no "prune_days" configuration value is set.');
-        }
-
-        return static::where('timestamp', '<=', Carbon::now()->subDays(config('activity.prune_days')));
-    }
-
-    /**
-     * Boots the model event listeners. This will trigger an activity log event every
-     * time a new model is inserted which can then be captured and worked with as needed.
-     */
-    protected static function boot()
+    protected static function boot(): void
     {
         parent::boot();
 
-        static::created(function (self $model) {
+        static::created(function (self $model): void {
             Event::dispatch(new ActivityLogged($model));
         });
     }

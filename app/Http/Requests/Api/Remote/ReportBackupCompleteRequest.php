@@ -1,21 +1,19 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Remote;
 
-use Illuminate\Foundation\Http\FormRequest;
+use Pterodactyl\Actions\Backups\CompleteBackup;
+use Pterodactyl\Http\Requests\Api\ApiRequest;
 
-class ReportBackupCompleteRequest extends FormRequest
+class ReportBackupCompleteRequest extends ApiRequest
 {
+    /**
+     * @return ValidationRules
+     */
     public function rules(): array
     {
-        return [
-            'successful' => 'required|boolean',
-            'checksum' => 'nullable|string|required_if:successful,true',
-            'checksum_type' => 'nullable|string|required_if:successful,true',
-            'size' => 'nullable|numeric|required_if:successful,true',
-            'parts' => 'nullable|array',
-            'parts.*.etag' => 'required|string',
-            'parts.*.part_number' => 'required|numeric',
-        ];
+        return CompleteBackup::rules();
     }
 }

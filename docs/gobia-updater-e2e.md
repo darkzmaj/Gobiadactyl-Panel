@@ -1,0 +1,93 @@
+# Gobia updater: recorded end to end run (2026-10-09)
+
+What was actually run, so nobody has to take "it works" on trust. Environment: a Linux container (Debian, PHP 8.4.26 CLI with OPcache, the
+PHP built-in web server), MariaDB 11.8.9 in a second container, the Panel owned by an unprivileged user `panel`, queue driver `database`,
+cache and sessions on files. No PHP-FPM, no systemd, no Wings node: those parts are **not** covered here.
+
+## Steps
+
+1. Three signed packages were built from the working tree with `scripts/release/build-release.sh` (`RELEASE_SOURCE=worktree`) and a
+   throwaway Ed25519 key: 2.0.0, 2.0.1 (adds a migration and a marker file) and 2.0.2 (adds a migration that creates a table and then
+   throws). Each package is about 21 MB and unpacks to about 14 900 files.
+2. 2.0.0 was installed from its package alone (unpack, `.env`, `key:generate`, `migrate --seed`, `p:theme:apply gobia` (2.0.0 predates the theme platform; current releases run `p:theme:activate gobia-theme`),
+   `p:extension:enable` for the three Gobia extensions). A third party extension (`extensions/acme-notes`, enabled), a custom theme
+   (`themes/custom`) and a file under `storage/app/private` were added to stand in for what a real installation accumulates.
+3. `GOBIA_UPDATE_PROVIDER=directory` pointed at a folder that received 2.0.1, then 2.0.2.
+
+## Results
+
+| Scenario | Result |
+| --- | --- |
+| Preflight for 2.0.1 | Ready: every required check passed (`wings_connectivity` skipped: no nodes; `redis` skipped: not used) |
+| `gobia-core:update:run` 2.0.0 to 2.0.1 | Completed in about 6 seconds. `gobia-release.json` says 2.0.1, the new migration ran, the marker file is served |
+| What survived | `.env` (same `APP_KEY`), the storage file, `extensions/acme-notes` (still enabled, assets published again), `themes/custom`; Gobia theme and all four extensions published; files still owned by `panel`; maintenance mode off; sign in page 200; route and event snapshots present; extension routes answer |
+| Health command afterwards | `ok: true` (version, database, 0 pending migrations, storage, frontend manifest, Gobia extensions, queue) |
+| `gobia-core:update:run` 2.0.1 to 2.0.2 (broken migration) | Failed at `migrate`, rolled back by itself: 2.0.1 files restored, database dump restored (the half created table is gone, the 2.0.1 table and the user row are still there), maintenance mode off, sign in page 200, health `ok: true` |
+| Secrets in `storage/updater` logs and run records | None (searched for the database password) |
+| `gobia-core:update:rollback` without `--restore-database` | Refused: 2.0.1 had run a migration |
+| `gobia-core:update:rollback --restore-database` | Back on 2.0.0: marker table and marker file gone, third party extension still there, site up |
+| A second rollback | Refused: nothing left to roll back |
+| Helper present but not allowed through sudo (in-place layout) | Skipped, update completes |
+| `gobia-update-helper` as root | No config 78; valid config 0; `activate ../../etc` and `activate '2.0.0; id'` 65; unknown verb 64; release not owned by the Panel user 68; valid release switches `current`; missing release 66; a config value with `; rm -rf /` 78; world writable config 78 |
+
+Two defects were found by this run and fixed before the numbers above were taken: rollback eligibility looked only at the newest run, so
+a failed update hid the installed one; and the HTTP health probe accepted any 200 response, including a PHP error page (it now requires
+the Panel's shell).
+
+## Not exercised
+
+The GitHub release provider against the real API (covered only with faked HTTP in 1.x and by the shared code path here), PHP-FPM reloads,
+systemd restarts, the release directory layout end to end (only the helper's `activate` was run), an update while real Wings nodes are
+connected, a full disk during unpacking, and the Updates screen in a browser against a real update. These still need
+a disposable real server.
+
+## Repeating it
+
+The scripts are not in the repository (they create users and databases inside a throwaway container). The recipe: build packages as in
+step 1, unpack one into an empty directory owned by an unprivileged user, configure `.env` with `GOBIA_UPDATE_PROVIDER=directory`,
+`GOBIA_UPDATE_DIRECTORY` and the matching `GOBIA_UPDATE_PUBLIC_KEY`, copy a newer release folder into that directory and run
+`php artisan gobia-core:update:check --preflight`, then `php artisan gobia-core:update:run --force`.
+
+# Second recorded run: the Gobia Panel 2.0.0 release package (2026-10-10)
+
+Environment: WSL2 Ubuntu 24.04 on Windows (a real Linux kernel, not a container image), PHP 8.3.6 CLI, MariaDB 10.11.14, the PHP built-in web
+server, the Panel owned by an unprivileged user `panel`, queue driver `database`, `GOBIA_UPDATE_PROVIDER=directory`. No PHP-FPM, no
+systemd, no Wings node.
+
+What differs from the first run: the base install is the **real 2.0.0 release package** built by `scripts/release/build-release.sh` from the
+exact release commit and signed with the **real Gobia 2.0 release key**; the trusted public key is the one committed in
+`extensions/gobia-core/config/gobia_updater.php` (no `GOBIA_UPDATE_PUBLIC_KEY` override). The newer packages used as update targets (2.0.1
+with an additive migration and a marker file, 2.0.2 with a migration that creates a table and then throws) were the same tree with a bumped
+version, signed with the same real key; they exist only on the test machine and were never published.
+
+| Scenario | Result |
+| --- | --- |
+| Discovery and preflight for 2.0.1 | Signed by the trusted Gobia release key; 17 checks passed, 3 skipped (node runtime, Redis, Wings: none configured); "Ready to update" |
+| A release whose manifest was edited after signing (offered alone) | Rejected by `update:check` and by `update:run`; installed version unchanged |
+| `update:run` 2.0.0 to 2.0.1 | Completed; migration ran, marker file served, `.env` key, storage file, third party extension `acme-notes`, custom theme and the database row all survived; health `ok: true`; code owned by `panel` |
+| `update:run` 2.0.1 to 2.0.2 (broken migration) | Failed at `migrate`, rolled back by itself (files and database dump restored), site answering 200, health `ok: true` |
+| `update:rollback` without `--restore-database` | Refused with the explicit data loss warning |
+| `update:rollback --restore-database` | Back on 2.0.0, marker table gone, third party extension still present, site answering 200 |
+| Secrets in `storage/updater` | The database password was not found in any updater log or run record |
+
+Still not exercised in this run (unchanged from the first run): the GitHub release provider against the real API, PHP-FPM reloads, systemd
+restarts, the release directory layout end to end, an update with real Wings nodes connected, a full disk while unpacking, the Updates
+screen in a browser against a real update.
+
+# Third recorded run: 2.0.0 to the Gobia Panel 2.1.0 release package (2026-11-12)
+
+Same environment as the second run (WSL2 Ubuntu 24.04, PHP 8.3.6, MariaDB 10.11.14, PHP built-in server, unprivileged user `panel`,
+`GOBIA_UPDATE_PROVIDER=directory`, queue `database`, `APP_ENV=production`). Base: the real published 2.0.0 package. Target: the real 2.1.0
+package built by `scripts/release/build-release.sh` from `d02a5f24a` (Linux CI green on that SHA, run 43281356823 on the mirror; SHA-256 `737b69cb0f4d1786afcc6df7090db3885916f9761d479a5d7f04bc06591d330a`), signed
+with the Gobia 2.0 release key; signature, checksum and size verified against the committed public key; archive audit clean (19 244
+entries, no links, `.env`, `.git`, tests, keys or mock Wings).
+
+| Scenario | Result |
+| --- | --- |
+| Install 2.0.0 from its package | Needs `storage/` and `bootstrap/cache` created first (the package ships neither, by design); `gobia-theme` does not exist in 2.0.0, so its enable and activate were skipped |
+| Preflight 2.0.0 to 2.1.0 | 17 passed, 3 skipped (node runtime, Redis, Wings); "Ready to update"; 7 migrations announced |
+| `update:run` | Completed: 15 587 files unpacked, database dump written and verified, migrations, theme and extensions published, workers restarted, health check passed |
+| After the update | Version 2.1.0, login page 200, `pterodactyl:theme` = `gobia-theme` (set by `post_install`), a file in `storage/app/private` kept, code owned by `panel`, database password in no updater file |
+
+Not exercised: the same list as the second run, plus the container deployment (the updater replaces files in place; in a container the
+update path is a new image built from the next signed release).

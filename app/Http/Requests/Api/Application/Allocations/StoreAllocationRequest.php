@@ -1,9 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Application\Allocations;
 
-use Pterodactyl\Services\Acl\Api\AdminAcl;
 use Pterodactyl\Http\Requests\Api\Application\ApplicationApiRequest;
+use Pterodactyl\Services\Acl\Api\AdminAcl;
 
 class StoreAllocationRequest extends ApplicationApiRequest
 {
@@ -11,24 +13,33 @@ class StoreAllocationRequest extends ApplicationApiRequest
 
     protected int $permission = AdminAcl::WRITE;
 
+    /**
+     * @return ValidationRules
+     */
     public function rules(): array
     {
         return [
-            'ip' => 'required|string',
-            'alias' => 'sometimes|nullable|string|max:191',
-            'ports' => 'required|array',
-            'ports.*' => 'string',
+            'ip' => ['required', 'string'],
+            'alias' => ['sometimes', 'nullable', 'string', 'max:191'],
+            'ports' => ['required', 'array'],
+            'ports.*' => ['string'],
         ];
     }
 
-    public function validated($key = null, $default = null): array
+    /**
+     * The validated input under the action's field names: ip, ports and alias are its
+     * allocation_ip, allocation_ports and allocation_alias.
+     *
+     * @return array<string, mixed>
+     */
+    public function actionInput(): array
     {
-        $data = parent::validated();
+        $input = parent::actionInput();
 
         return [
-            'allocation_ip' => $data['ip'],
-            'allocation_ports' => $data['ports'],
-            'allocation_alias' => $data['alias'] ?? null,
+            'allocation_ip' => $input['ip'] ?? null,
+            'allocation_ports' => $input['ports'] ?? null,
+            'allocation_alias' => $input['alias'] ?? null,
         ];
     }
 }

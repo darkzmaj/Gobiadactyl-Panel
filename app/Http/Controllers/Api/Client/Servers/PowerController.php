@@ -1,34 +1,32 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Controllers\Api\Client\Servers;
 
 use Illuminate\Http\Response;
-use Pterodactyl\Models\Server;
-use Pterodactyl\Facades\Activity;
-use Pterodactyl\Repositories\Wings\DaemonPowerRepository;
+use Knuckles\Scribe\Attributes\Endpoint;
+use Knuckles\Scribe\Attributes\Group;
+use Knuckles\Scribe\Attributes\Response as ScribeResponse;
+use Knuckles\Scribe\Attributes\Subgroup;
+use Pterodactyl\Contracts\Servers\SendsServerPower;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
 use Pterodactyl\Http\Requests\Api\Client\Servers\SendPowerRequest;
+use Pterodactyl\Models\Server;
 
+#[Group('Client API', 'Endpoints authenticated as a panel user using a client API token.')]
+#[Subgroup('Server Overview', 'Inspect and control an accessible server.')]
 class PowerController extends ClientApiController
 {
     /**
-     * PowerController constructor.
-     */
-    public function __construct(private DaemonPowerRepository $repository)
-    {
-        parent::__construct();
-    }
-
-    /**
      * Send a power action to a server.
      */
-    public function index(SendPowerRequest $request, Server $server): Response
+    #[Endpoint('Send power action', 'Sends a power signal to the server through Wings.')]
+    #[ScribeResponse(status: 204, description: 'Power signal accepted by Wings.')]
+    public function index(SendPowerRequest $request, SendsServerPower $power, Server $server): Response
     {
-        $this->repository->setServer($server)->send(
-            $request->input('signal')
-        );
-
-        Activity::event(strtolower("server:power.{$request->input('signal')}"))->log();
+        $signal = $request->string('signal')->toString();
+        $power->send($server, $signal);
 
         return $this->returnNoContent();
     }

@@ -1,44 +1,32 @@
 import React, { useEffect } from 'react';
 import ContentContainer from '@/components/elements/ContentContainer';
-import { CSSTransition } from 'react-transition-group';
-import tw from 'twin.macro';
-import FlashMessageRender from '@/components/FlashMessageRender';
+import PageFooter from '@/components/elements/PageFooter';
+import { setPageTitle } from '@/views/pageTitle';
 
 export interface PageContentBlockProps {
+    /** Titles the document. */
     title?: string;
+    /** Classes for the block's outermost element, such as geometry tokens: `[--layout-gutter:0px]`. */
     className?: string;
-    showFlashKey?: string;
+    children?: React.ReactNode;
 }
 
-const PageContentBlock: React.FC<PageContentBlockProps> = ({ title, showFlashKey, className, children }) => {
+/**
+ * A page's content and its footer. The content is `page-width` with `--layout-page-spacing` above and
+ * below; the geometry tokens cascade, so a page changes its own by setting them in `className`.
+ */
+const PageContentBlock = ({ title, className, children }: PageContentBlockProps) => {
     useEffect(() => {
         if (title) {
-            document.title = title;
+            setPageTitle(title);
         }
     }, [title]);
 
     return (
-        <CSSTransition timeout={150} classNames={'fade'} appear in>
-            <>
-                <ContentContainer css={tw`my-4 sm:my-10`} className={className}>
-                    {showFlashKey && <FlashMessageRender byKey={showFlashKey} css={tw`mb-4`} />}
-                    {children}
-                </ContentContainer>
-                <ContentContainer css={tw`mb-4`}>
-                    <p css={tw`text-center text-neutral-500 text-xs`}>
-                        <a
-                            rel={'noopener nofollow noreferrer'}
-                            href={'https://pterodactyl.io'}
-                            target={'_blank'}
-                            css={tw`no-underline text-neutral-500 hover:text-neutral-300`}
-                        >
-                            Pterodactyl&reg;
-                        </a>
-                        &nbsp;&copy; 2015 - {new Date().getFullYear()}
-                    </p>
-                </ContentContainer>
-            </>
-        </CSSTransition>
+        <div className={className}>
+            <ContentContainer className='my-(--layout-page-spacing)'>{children}</ContentContainer>
+            <PageFooter />
+        </div>
     );
 };
 

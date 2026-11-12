@@ -1,37 +1,33 @@
-import React, { useRef, useState } from 'react';
-import { Dialog as HDialog } from '@headlessui/react';
-import { Button } from '@/components/elements/button/index';
-import { XIcon } from '@heroicons/react/solid';
-import { AnimatePresence, motion } from 'framer-motion';
-import { DialogContext, IconPosition, RenderDialogProps, styles } from './';
+import React, { useMemo, useState } from 'react';
+import { Dialog as BaseDialog } from '@base-ui/react/dialog';
+import Button from '@/components/elements/Button';
+import { Check, Info, ShieldAlert, TriangleAlert, X } from 'lucide-react';
+import { useSkin, type SkinBinding } from '@/themes/skins';
+import { DialogContext } from './context';
+import DialogFooter from './DialogFooter';
+import type { DialogIconProps, IconPosition, RenderDialogProps } from './types';
 
-const variants = {
-    open: {
-        scale: 1,
-        opacity: 1,
-        transition: {
-            type: 'spring',
-            damping: 15,
-            stiffness: 300,
-            duration: 0.15,
-        },
-    },
-    closed: {
-        scale: 0.75,
-        opacity: 0,
-        transition: {
-            type: 'easeIn',
-            duration: 0.15,
-        },
-    },
-    bounce: {
-        scale: 0.95,
-        opacity: 1,
-        transition: { type: 'linear', duration: 0.075 },
-    },
+const focusableSelector =
+    ':is(input, select, textarea, button, a[href], [tabindex]):not([disabled]):not([tabindex="-1"])';
+
+const icons = {
+    danger: ShieldAlert,
+    warning: TriangleAlert,
+    success: Check,
+    info: Info,
 };
 
-export default ({
+function TypeIcon({ ui, icon }: { ui: SkinBinding<'Dialog'>; icon: DialogIconProps }) {
+    const Glyph = icons[icon.type];
+
+    return (
+        <div {...ui('icon', icon.className, { type: icon.type })}>
+            <Glyph {...ui('iconGlyph')} />
+        </div>
+    );
+}
+
+export default function DialogComponent({
     open,
     title,
     description,
@@ -39,93 +35,86 @@ export default ({
     hideCloseIcon,
     preventExternalClose,
     children,
-}: RenderDialogProps) => {
-    const container = useRef<HTMLDivElement>(null);
-    const [icon, setIcon] = useState<React.ReactNode>();
-    const [footer, setFooter] = useState<React.ReactNode>();
+}: RenderDialogProps) {
+    const [icon, setIcon] = useState<DialogIconProps>();
     const [iconPosition, setIconPosition] = useState<IconPosition>('title');
-    const [down, setDown] = useState(false);
+    const popupRef = React.useRef<HTMLDivElement>(null);
+    const described = !!description;
+    const ui = useSkin('Dialog', { described });
 
-    const onContainerClick = (down: boolean, e: React.MouseEvent<HTMLDivElement>): void => {
-        if (e.target instanceof HTMLElement && container.current?.isSameNode(e.target)) {
-            setDown(down);
+    const initialFocus = (interactionType: string) => {
+        if (interactionType === 'touch') {
+            return popupRef.current;
         }
+
+        const first = popupRef.current?.querySelector<HTMLElement>(focusableSelector);
+
+        return first?.getAttribute('role') === 'combobox' ? popupRef.current : true;
     };
 
-    const onDialogClose = (): void => {
-        if (!preventExternalClose) {
-            return onClose();
+    // `preventExternalClose` ignores Base UI dismissals; the close button still calls `onClose`.
+    const onOpenChange = (nextOpen: boolean): void => {
+        if (nextOpen || preventExternalClose) {
+            return;
         }
+
+        onClose();
     };
+
+    const context = useMemo(() => ({ setIcon, setIconPosition, described }), [setIcon, setIconPosition, described]);
+
+    const items = React.Children.toArray(children);
+    const isFooter = (child: React.ReactNode) => React.isValidElement(child) && child.type === DialogFooter;
+    const footer = items.filter(isFooter);
+    const content = items.filter((child) => !isFooter(child));
+    const typeIcon = icon && <TypeIcon ui={ui} icon={icon} />;
 
     return (
-        <AnimatePresence>
-            {open && (
-                <DialogContext.Provider value={{ setIcon, setFooter, setIconPosition }}>
-                    <HDialog
-                        static
-                        as={motion.div}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        open={open}
-                        onClose={onDialogClose}
-                    >
-                        <div className={'fixed inset-0 bg-gray-900/50 z-40'} />
-                        <div className={'fixed inset-0 overflow-y-auto z-50'}>
-                            <div
-                                ref={container}
-                                className={styles.container}
-                                onMouseDown={onContainerClick.bind(this, true)}
-                                onMouseUp={onContainerClick.bind(this, false)}
-                            >
-                                <HDialog.Panel
-                                    as={motion.div}
-                                    initial={'closed'}
-                                    animate={down ? 'bounce' : 'open'}
-                                    exit={'closed'}
-                                    variants={variants}
-                                    className={styles.panel}
-                                >
-                                    <div className={'flex p-6 pb-0 overflow-y-auto'}>
-                                        {iconPosition === 'container' && icon}
-                                        <div className={'flex-1 max-h-[70vh] min-w-0'}>
-                                            <div className={'flex items-center'}>
-                                                {iconPosition !== 'container' && icon}
-                                                <div>
-                                                    {title && (
-                                                        <HDialog.Title className={styles.title}>{title}</HDialog.Title>
-                                                    )}
-                                                    {description && (
-                                                        <HDialog.Description>{description}</HDialog.Description>
-                                                    )}
-                                                </div>
+        <DialogContext.Provider value={context}>
+            {/* Base UI unmounts the popup after its data-ending-style transition finishes. */}
+            <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
+                <BaseDialog.Portal>
+                    <BaseDialog.Backdrop {...ui('backdrop')} />
+                    <div {...ui('viewport')}>
+                        <div {...ui('container')}>
+                            <BaseDialog.Popup ref={popupRef} {...ui('root')} initialFocus={initialFocus}>
+                                <div {...ui('body')}>
+                                    {iconPosition === 'container' && typeIcon}
+                                    <div {...ui('content')}>
+                                        <div {...ui('header')}>
+                                            {iconPosition !== 'container' && typeIcon}
+                                            <div {...ui('heading')}>
+                                                {title && <BaseDialog.Title {...ui('title')}>{title}</BaseDialog.Title>}
+                                                {description && (
+                                                    <BaseDialog.Description {...ui('description')}>
+                                                        {description}
+                                                    </BaseDialog.Description>
+                                                )}
                                             </div>
-                                            {children}
-                                            <div className={'invisible h-6'} />
                                         </div>
+                                        {content}
+                                        <div {...ui('spacer')} />
                                     </div>
-                                    {footer}
-                                    {/* Keep this below the other buttons so that it isn't the default focus if they're present. */}
-                                    {!hideCloseIcon && (
-                                        <div className={'absolute right-0 top-0 m-4'}>
-                                            <Button.Text
-                                                size={Button.Sizes.Small}
-                                                shape={Button.Shapes.IconSquare}
-                                                onClick={onClose}
-                                                className={'group'}
-                                            >
-                                                <XIcon className={styles.close_icon} />
-                                            </Button.Text>
-                                        </div>
-                                    )}
-                                </HDialog.Panel>
-                            </div>
+                                </div>
+                                {footer}
+                                {/* Rendered after the other buttons so it is not the default focus. */}
+                                {!hideCloseIcon && (
+                                    <div {...ui('close')}>
+                                        <Button.Text
+                                            type='button'
+                                            size='xsmall'
+                                            onClick={onClose}
+                                            className={ui.classes('closeButton')}
+                                        >
+                                            <X {...ui('closeIcon')} />
+                                        </Button.Text>
+                                    </div>
+                                )}
+                            </BaseDialog.Popup>
                         </div>
-                    </HDialog>
-                </DialogContext.Provider>
-            )}
-        </AnimatePresence>
+                    </div>
+                </BaseDialog.Portal>
+            </BaseDialog.Root>
+        </DialogContext.Provider>
     );
-};
+}

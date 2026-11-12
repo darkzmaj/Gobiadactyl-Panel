@@ -1,169 +1,105 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Controllers\Api\Client\Servers;
 
-use Illuminate\Http\Request;
-use Pterodactyl\Models\Server;
 use Illuminate\Http\JsonResponse;
-use Pterodactyl\Facades\Activity;
-use Pterodactyl\Models\Permission;
-use Pterodactyl\Jobs\RevokeSftpAccessJob;
-use Pterodactyl\Repositories\Eloquent\SubuserRepository;
-use Pterodactyl\Services\Subusers\SubuserCreationService;
-use Pterodactyl\Transformers\Api\Client\SubuserTransformer;
-use Pterodactyl\Repositories\Wings\DaemonRevocationRepository;
+use Knuckles\Scribe\Attributes\Endpoint;
+use Knuckles\Scribe\Attributes\Group;
+use Knuckles\Scribe\Attributes\Response as ScribeResponse;
+use Knuckles\Scribe\Attributes\Subgroup;
+use Pterodactyl\Contracts\Subusers\CreatesSubusers;
+use Pterodactyl\Contracts\Subusers\DeletesSubusers;
+use Pterodactyl\Contracts\Subusers\UpdatesSubusers;
+use Pterodactyl\Exceptions\Service\Subuser\ServerSubuserExistsException;
+use Pterodactyl\Exceptions\Service\Subuser\UserIsServerOwnerException;
+use Pterodactyl\Extensions\Scribe\Attributes\ResponseFromResource;
 use Pterodactyl\Http\Controllers\Api\Client\ClientApiController;
+use Pterodactyl\Http\Requests\Api\Client\Servers\Subusers\DeleteSubuserRequest;
 use Pterodactyl\Http\Requests\Api\Client\Servers\Subusers\GetSubuserRequest;
 use Pterodactyl\Http\Requests\Api\Client\Servers\Subusers\StoreSubuserRequest;
-use Pterodactyl\Http\Requests\Api\Client\Servers\Subusers\DeleteSubuserRequest;
 use Pterodactyl\Http\Requests\Api\Client\Servers\Subusers\UpdateSubuserRequest;
+use Pterodactyl\Http\Resources\Api\ApiResourceCollection;
+use Pterodactyl\Http\Resources\Api\Client\SubuserResource;
+use Pterodactyl\Models\Server;
+use Pterodactyl\Models\Subuser;
+use Throwable;
 
+#[Group('Client API', 'Endpoints authenticated as a panel user using a client API token.')]
+#[Subgroup('Server Subusers', 'Create, view, update, and remove server subusers.')]
 class SubuserController extends ClientApiController
 {
-    /**
-     * SubuserController constructor.
-     */
-    public function __construct(
-        private SubuserRepository $repository,
-        private SubuserCreationService $creationService,
-        private DaemonRevocationRepository $revocationRepository,
-    ) {
-        parent::__construct();
-    }
+    private const array SUBUSER_EXISTS_ERROR = [
+        'errors' => [
+            [
+                'code' => 'ServerSubuserExistsException',
+                'status' => '400',
+                'detail' => 'A user with that email address is already assigned as a subuser for this server.',
+            ],
+        ],
+    ];
 
     /**
      * Return the users associated with this server instance.
      */
-    public function index(GetSubuserRequest $request, Server $server): array
+    #[Endpoint('List server subusers', 'Returns subusers assigned to the server.')]
+    #[ResponseFromResource(SubuserResource::class, Subuser::class, description: 'Server subusers returned.', collection: true, resourceKey: 'server_subuser')]
+    public function index(GetSubuserRequest $request, Server $server): ApiResourceCollection
     {
-        return $this->fractal->collection($server->subusers)
-            ->transformWith($this->getTransformer(SubuserTransformer::class))
-            ->toArray();
+        return SubuserResource::collection($server->subusers);
     }
 
     /**
      * Returns a single subuser associated with this server instance.
      */
-    public function view(GetSubuserRequest $request): array
+    #[Endpoint('Get server subuser', 'Returns one subuser assignment for the server.')]
+    #[ResponseFromResource(SubuserResource::class, Subuser::class, description: 'Server subuser returned.', resourceKey: 'server_subuser')]
+    public function view(GetSubuserRequest $request): SubuserResource
     {
         $subuser = $request->attributes->get('subuser');
 
-        return $this->fractal->item($subuser)
-            ->transformWith($this->getTransformer(SubuserTransformer::class))
-            ->toArray();
+        return SubuserResource::make($subuser);
     }
 
     /**
      * Create a new subuser for the given server.
      *
-     * @throws \Pterodactyl\Exceptions\Model\DataValidationException
-     * @throws \Pterodactyl\Exceptions\Service\Subuser\ServerSubuserExistsException
-     * @throws \Pterodactyl\Exceptions\Service\Subuser\UserIsServerOwnerException
-     * @throws \Throwable
+     * @throws ServerSubuserExistsException
+     * @throws UserIsServerOwnerException
+     * @throws Throwable
      */
-    public function store(StoreSubuserRequest $request, Server $server): array
+    #[Endpoint('Create server subuser', 'Assigns an existing or new user as a subuser on the server.')]
+    #[ResponseFromResource(SubuserResource::class, Subuser::class, description: 'Server subuser created.', resourceKey: 'server_subuser')]
+    #[ScribeResponse(self::SUBUSER_EXISTS_ERROR, status: 400, description: 'The user is already assigned to the server or is the server owner.')]
+    public function store(StoreSubuserRequest $request, CreatesSubusers $subusers, Server $server): SubuserResource
     {
-        $response = $this->creationService->handle(
-            $server,
-            $request->input('email'),
-            $this->getDefaultPermissions($request)
-        );
+        $response = $subusers->create($server, $request->string('email')->toString(), $request->permissions());
 
-        Activity::event('server:subuser.create')
-            ->subject($response->user)
-            ->property(['email' => $request->input('email'), 'permissions' => $this->getDefaultPermissions($request)])
-            ->log();
-
-        return $this->fractal->item($response)
-            ->transformWith($this->getTransformer(SubuserTransformer::class))
-            ->toArray();
+        return SubuserResource::make($response);
     }
 
     /**
      * Update a given subuser in the system for the server.
-     *
-     * @throws \Pterodactyl\Exceptions\Model\DataValidationException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
      */
-    public function update(UpdateSubuserRequest $request, Server $server): array
+    #[Endpoint('Update server subuser', 'Updates permissions for a server subuser and revokes their SFTP access tokens.')]
+    #[ResponseFromResource(SubuserResource::class, Subuser::class, description: 'Server subuser updated.', resourceKey: 'server_subuser')]
+    public function update(UpdateSubuserRequest $request, UpdatesSubusers $subusers, Server $server): SubuserResource
     {
-        /** @var \Pterodactyl\Models\Subuser $subuser */
-        $subuser = $request->attributes->get('subuser');
+        $subuser = $subusers->update($server, $request->subuser(), $request->permissions());
 
-        $permissions = $this->getDefaultPermissions($request);
-        $current = $subuser->permissions;
-
-        sort($permissions);
-        sort($current);
-
-        $log = Activity::event('server:subuser.update')
-            ->subject($subuser->user)
-            ->property([
-                'email' => $subuser->user->email,
-                'old' => $current,
-                'new' => $permissions,
-                'revoked' => true,
-            ]);
-
-        // Only update the database and hit up the Wings instance to invalidate JTI's if the permissions
-        // have actually changed for the user.
-        if ($permissions !== $current) {
-            $log->transaction(function () use ($request, $subuser, $server) {
-                $this->repository->update($subuser->id, [
-                    'permissions' => $this->getDefaultPermissions($request),
-                ]);
-
-                RevokeSftpAccessJob::dispatch($subuser->user->uuid, $server);
-            });
-        }
-
-        $log->reset();
-
-        return $this->fractal->item($subuser->refresh())
-            ->transformWith($this->getTransformer(SubuserTransformer::class))
-            ->toArray();
+        return SubuserResource::make($subuser);
     }
 
     /**
      * Removes a subusers from a server's assignment.
      */
-    public function delete(DeleteSubuserRequest $request, Server $server): JsonResponse
+    #[Endpoint('Delete server subuser', 'Removes a subuser assignment from the server and revokes SFTP access tokens.')]
+    #[ScribeResponse(status: 204, description: 'Server subuser removed.')]
+    public function delete(DeleteSubuserRequest $request, DeletesSubusers $subusers, Server $server): JsonResponse
     {
-        /** @var \Pterodactyl\Models\Subuser $subuser */
-        $subuser = $request->attributes->get('subuser');
-
-        $log = Activity::event('server:subuser.delete')
-            ->subject($subuser->user)
-            ->property('email', $subuser->user->email)
-            ->property('revoked', true);
-
-        $log->transaction(function () use ($server, $subuser) {
-            $subuser->delete();
-
-            RevokeSftpAccessJob::dispatch($subuser->user->uuid, $server);
-        });
+        $subusers->delete($server, $request->subuser());
 
         return new JsonResponse([], JsonResponse::HTTP_NO_CONTENT);
-    }
-
-    /**
-     * Returns the default permissions for subusers and parses out any permissions
-     * that were passed that do not also exist in the internally tracked list of
-     * permissions.
-     */
-    protected function getDefaultPermissions(Request $request): array
-    {
-        $allowed = Permission::permissions()
-            ->map(function ($value, $prefix) {
-                return array_map(function ($value) use ($prefix) {
-                    return "$prefix.$value";
-                }, array_keys($value['keys']));
-            })
-            ->flatten()
-            ->all();
-
-        $cleaned = array_intersect($request->input('permissions') ?? [], $allowed);
-
-        return array_unique(array_merge($cleaned, [Permission::ACTION_WEBSOCKET_CONNECT]));
     }
 }

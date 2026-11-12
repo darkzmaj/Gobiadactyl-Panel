@@ -1,28 +1,38 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Client\Account;
 
-use phpseclib3\Crypt\DSA;
-use phpseclib3\Crypt\RSA;
-use Pterodactyl\Models\UserSSHKey;
+use Closure;
 use Illuminate\Validation\Validator;
-use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Crypt\Common\PublicKey;
+use phpseclib3\Crypt\DSA;
+use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib3\Crypt\RSA;
 use phpseclib3\Exception\NoKeyLoadedException;
+use Pterodactyl\Actions\Users\CreateSshKey;
 use Pterodactyl\Http\Requests\Api\Client\ClientApiRequest;
+use UnexpectedValueException;
 
 class StoreSSHKeyRequest extends ClientApiRequest
 {
-    protected ?PublicKey $key;
+    protected ?PublicKey $key = null;
 
     /**
-     * Returns the rules for this request.
+     * Returns the rules for this request. The key is parsed here, so it is held to the
+     * longest key that is parsed; the action gets it in a consistent format, with its
+     * fingerprint.
+     *
+     * @return ValidationRules
      */
     public function rules(): array
     {
+        $rules = CreateSshKey::rules();
+
         return [
-            'name' => UserSSHKey::getRulesForField('name'),
-            'public_key' => UserSSHKey::getRulesForField('public_key'),
+            'name' => $rules['name'],
+            'public_key' => [...$rules['public_key'], 'max:'.CreateSshKey::PUBLIC_KEY_MAX_LENGTH],
         ];
     }
 
@@ -30,42 +40,44 @@ class StoreSSHKeyRequest extends ClientApiRequest
      * Check to see if this SSH key has already been added to the user's account
      * and if so return an error.
      */
-    public function withValidator(Validator $validator): void
+    /**
+     * @return list<Closure(Validator): void>
+     */
+    public function after(): array
     {
-        $validator->after(function () {
-            $publicKey = $this->input('public_key');
-            if (!is_string($publicKey)) {
+        return [function (Validator $validator): void {
+            if ($validator->errors()->has('public_key')) {
                 return;
             }
 
-            $publicKey = trim($publicKey);
-            if (!UserSSHKey::isSupportedPublicKeyMaterial($publicKey)) {
-                $this->validator->errors()->add('public_key', 'The public key provided is not valid.');
+            $publicKey = mb_trim($this->string('public_key')->toString());
+            if (! CreateSshKey::isSupportedPublicKey($publicKey)) {
+                $validator->errors()->add('public_key', 'The public key provided is not valid.');
 
                 return;
             }
 
             try {
                 $this->key = PublicKeyLoader::loadPublicKey($publicKey);
-            } catch (NoKeyLoadedException $exception) {
-                $this->validator->errors()->add('public_key', 'The public key provided is not valid.');
+            } catch (NoKeyLoadedException) {
+                $validator->errors()->add('public_key', 'The public key provided is not valid.');
 
                 return;
             }
 
             if ($this->key instanceof DSA) {
-                $this->validator->errors()->add('public_key', 'DSA keys are not supported.');
+                $validator->errors()->add('public_key', 'DSA keys are not supported.');
             }
 
             if ($this->key instanceof RSA && $this->key->getLength() < 2048) {
-                $this->validator->errors()->add('public_key', 'RSA keys must be at least 2048 bytes in length.');
+                $validator->errors()->add('public_key', 'RSA keys must be at least 2048 bytes in length.');
             }
 
             $fingerprint = $this->key->getFingerprint('sha256');
             if ($this->user()->sshKeys()->where('fingerprint', $fingerprint)->exists()) {
-                $this->validator->errors()->add('public_key', 'The public key provided already exists on your account.');
+                $validator->errors()->add('public_key', 'The public key provided already exists on your account.');
             }
-        });
+        }];
     }
 
     /**
@@ -73,7 +85,10 @@ class StoreSSHKeyRequest extends ClientApiRequest
      */
     public function getPublicKey(): string
     {
-        return $this->key->toString('PKCS8');
+        $publicKey = $this->loadedKey()->toString('PKCS8');
+        throw_unless(is_string($publicKey), UnexpectedValueException::class, 'The loaded public key could not be serialized.');
+
+        return $publicKey;
     }
 
     /**
@@ -81,10 +96,14 @@ class StoreSSHKeyRequest extends ClientApiRequest
      */
     public function getKeyFingerprint(): string
     {
-        if (!$this->key) {
-            throw new \Exception('The public key was not properly loaded for this request.');
-        }
+        $fingerprint = $this->loadedKey()->getFingerprint('sha256');
+        throw_unless(is_string($fingerprint), UnexpectedValueException::class, 'The loaded public key did not produce a SHA256 fingerprint.');
 
-        return $this->key->getFingerprint('sha256');
+        return $fingerprint;
+    }
+
+    private function loadedKey(): PublicKey
+    {
+        return $this->key ?? throw new UnexpectedValueException('The public key was not properly loaded for this request.');
     }
 }

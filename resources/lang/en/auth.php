@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 return [
     'sign_in' => 'Sign In',
     'go_to_login' => 'Go to Login',
@@ -23,5 +25,4 @@ return [
 
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds.',
     'password_requirements' => 'Password must be at least 8 characters in length and should be unique to this site.',
-    '2fa_must_be_enabled' => 'The administrator has required that 2-Factor Authentication be enabled for your account in order to use the Panel.',
 ];

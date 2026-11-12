@@ -1,8 +1,7 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 
-export default ({ children }: { children: React.ReactNode }) => {
-    const element = useRef(document.getElementById('modal-portal'));
-
-    return createPortal(children, element!.current!);
-};
+/** Renders `children` into the page's overlay layer, or the body where there is none, as in tests. */
+export default function Portal({ children }: { children: React.ReactNode }) {
+    return createPortal(children, document.getElementById('modal-portal') ?? document.body);
+}

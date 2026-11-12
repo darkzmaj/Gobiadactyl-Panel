@@ -1,10 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Providers;
 
-use Pterodactyl\Extensions\Hashids;
+use Illuminate\Config\Repository;
 use Illuminate\Support\ServiceProvider;
 use Pterodactyl\Contracts\Extensions\HashidsInterface;
+use Pterodactyl\Extensions\Hashids;
 
 class HashidsServiceProvider extends ServiceProvider
 {
@@ -13,14 +16,13 @@ class HashidsServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(HashidsInterface::class, function () {
-            /** @var \Illuminate\Contracts\Config\Repository $config */
-            $config = $this->app['config'];
+        $this->app->singleton(function (): HashidsInterface {
+            $config = $this->app->make(Repository::class);
 
             return new Hashids(
-                $config->get('hashids.salt', ''),
-                $config->get('hashids.length', 0),
-                $config->get('hashids.alphabet', 'abcdefghijkmlnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890')
+                $config->string('hashids.salt', ''),
+                $config->integer('hashids.length'),
+                $config->string('hashids.alphabet', 'abcdefghijkmlnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890')
             );
         });
 

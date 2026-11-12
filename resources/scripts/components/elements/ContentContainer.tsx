@@ -1,15 +1,11 @@
-import styled from 'styled-components/macro';
-import { breakpoint } from '@/theme';
-import tw from 'twin.macro';
+import React from 'react';
+import { cn } from '@/lib/cn';
 
-const ContentContainer = styled.div`
-    max-width: 1200px;
-    ${tw`mx-4`};
+/** Page content's width and side margins: the `page-width` utility, tuned by `--layout-gutter`. */
+const ContentContainer = ({ className, ...props }: React.ComponentProps<'div'>) => (
+    <div className={cn('page-width', className)} {...props} />
+);
 
-    ${breakpoint('xl')`
-        ${tw`mx-auto`};
-    `};
-`;
 ContentContainer.displayName = 'ContentContainer';
 
 export default ContentContainer;

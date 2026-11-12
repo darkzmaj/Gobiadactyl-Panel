@@ -1,10 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Client\Servers\Settings;
 
-use Pterodactyl\Models\Server;
-use Pterodactyl\Models\Permission;
+use Pterodactyl\Actions\Servers\UpdateServerDetails;
 use Pterodactyl\Contracts\Http\ClientPermissionsRequest;
+use Pterodactyl\Enum\Permissions;
 use Pterodactyl\Http\Requests\Api\Client\ClientApiRequest;
 
 class RenameServerRequest extends ClientApiRequest implements ClientPermissionsRequest
@@ -16,17 +18,21 @@ class RenameServerRequest extends ClientApiRequest implements ClientPermissionsR
      */
     public function permission(): string
     {
-        return Permission::ACTION_SETTINGS_RENAME;
+        return Permissions::SettingsRename->value;
     }
 
     /**
      * The rules to apply when validating this request.
+     *
+     * @return ValidationRules
      */
     public function rules(): array
     {
+        $rules = UpdateServerDetails::rules();
+
         return [
-            'name' => Server::getRules()['name'],
-            'description' => 'string|nullable',
+            'name' => $rules['name'],
+            'description' => $rules['description'],
         ];
     }
 }

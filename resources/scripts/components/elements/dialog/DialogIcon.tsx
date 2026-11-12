@@ -1,31 +1,24 @@
-import React, { useContext, useEffect } from 'react';
-import { CheckIcon, ExclamationIcon, InformationCircleIcon, ShieldExclamationIcon } from '@heroicons/react/outline';
-import classNames from 'classnames';
-import { DialogContext, DialogIconProps, styles } from './';
+import { use, useEffect } from 'react';
+import { DialogContext } from './context';
+import type { DialogIconProps } from './types';
 
-const icons = {
-    danger: ShieldExclamationIcon,
-    warning: ExclamationIcon,
-    success: CheckIcon,
-    info: InformationCircleIcon,
-};
-
-export default ({ type, position, className }: DialogIconProps) => {
-    const { setIcon, setIconPosition } = useContext(DialogContext);
+/** Places a type icon beside the dialog title, or beside the whole content with `position="container"`. */
+const DialogIcon = ({ type, position, className }: DialogIconProps) => {
+    const { setIcon, setIconPosition } = use(DialogContext);
 
     useEffect(() => {
-        const Icon = icons[type];
+        setIcon({ type, className });
 
-        setIcon(
-            <div className={classNames(styles.dialog_icon, styles[type], className)}>
-                <Icon className={'w-6 h-6'} />
-            </div>
-        );
-    }, [type, className]);
+        return () => setIcon(undefined);
+    }, [className, setIcon, type]);
 
     useEffect(() => {
         setIconPosition(position);
-    }, [position]);
+
+        return () => setIconPosition('title');
+    }, [position, setIconPosition]);
 
     return null;
 };
+
+export default DialogIcon;

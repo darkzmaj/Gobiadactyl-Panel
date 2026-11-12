@@ -1,38 +1,49 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Application\Servers;
 
+use Pterodactyl\Actions\Servers\UpdateServerDetails;
+use Pterodactyl\Http\Requests\Concerns\ValidatesExtensionFields;
 use Pterodactyl\Models\Server;
 
 class UpdateServerDetailsRequest extends ServerWriteRequest
 {
+    use ValidatesExtensionFields {
+        actionInput as private inputWithExtensions;
+    }
+
     /**
-     * Rules to apply to a server details update request.
+     * Rules to apply to a server details update request. The Application API keeps its own
+     * field names; actionInput() hands the values to the action under its names.
+     *
+     * @return ValidationRules
      */
     public function rules(): array
     {
-        $rules = Server::getRulesForUpdate($this->parameter('server', Server::class));
+        $rules = UpdateServerDetails::rules($this->parameter('server', Server::class));
 
         return [
             'external_id' => $rules['external_id'],
             'name' => $rules['name'],
             'user' => $rules['owner_id'],
-            'description' => array_merge(['nullable'], $rules['description']),
+            'description' => $rules['description'],
         ];
     }
 
     /**
-     * Convert the posted data into the correct format that is expected
-     * by the application.
+     * The validated input under the action's field names: user is its owner_id.
+     *
+     * @return array<string, mixed>
      */
-    public function validated($key = null, $default = null): array
+    public function actionInput(): array
     {
-        return [
-            'external_id' => $this->input('external_id'),
-            'name' => $this->input('name'),
-            'owner_id' => $this->input('user'),
-            'description' => $this->input('description'),
-        ];
+        $input = $this->inputWithExtensions();
+        $input['owner_id'] = $input['user'] ?? null;
+        unset($input['user']);
+
+        return $input;
     }
 
     /**
@@ -45,5 +56,13 @@ class UpdateServerDetailsRequest extends ServerWriteRequest
             'user' => 'User ID',
             'name' => 'Server Name',
         ];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function extensionFieldsModel(): Server
+    {
+        return $this->parameter('server', Server::class);
     }
 }

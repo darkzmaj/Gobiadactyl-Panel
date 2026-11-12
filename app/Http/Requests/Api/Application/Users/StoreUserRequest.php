@@ -1,49 +1,67 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Application\Users;
 
+use Illuminate\Database\Eloquent\Model;
+use Pterodactyl\Actions\Users\CreateUser;
+use Pterodactyl\Http\Requests\Api\Application\ApplicationApiRequest;
+use Pterodactyl\Http\Requests\Concerns\ValidatesExtensionFields;
 use Pterodactyl\Models\User;
 use Pterodactyl\Services\Acl\Api\AdminAcl;
-use Pterodactyl\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class StoreUserRequest extends ApplicationApiRequest
 {
+    use ValidatesExtensionFields {
+        actionInput as private inputWithExtensions;
+    }
+
     protected ?string $resource = AdminAcl::RESOURCE_USERS;
 
     protected int $permission = AdminAcl::WRITE;
 
+    public function authorize(): bool
+    {
+        return parent::authorize() && (! $this->boolean('root_admin') || $this->canManageAdministrators());
+    }
+
     /**
      * Return the validation rules for this request.
+     *
+     * @param  NormalizedValidationRules|null  $rules
+     * @return ValidationRules
      */
     public function rules(?array $rules = null): array
     {
-        $rules = $rules ?? User::getRules();
+        $rules ??= CreateUser::rules();
 
-        $response = collect($rules)->only([
-            'external_id',
-            'email',
-            'username',
-            'password',
-            'language',
-            'root_admin',
-        ])->toArray();
-
-        $response['first_name'] = $rules['name_first'];
-        $response['last_name'] = $rules['name_last'];
-
-        return $response;
+        return [
+            'external_id' => $rules['external_id'],
+            'email' => $rules['email'],
+            'username' => $rules['username'],
+            'password' => $rules['password'],
+            'language' => $rules['language'],
+            'root_admin' => $rules['root_admin'],
+            'first_name' => $rules['name_first'],
+            'last_name' => $rules['name_last'],
+        ];
     }
 
-    public function validated($key = null, $default = null): array
+    /**
+     * The validated input under the action's field names: first_name and last_name are
+     * its name_first and name_last.
+     *
+     * @return array<string, mixed>
+     */
+    public function actionInput(): array
     {
-        $data = parent::validated();
+        $input = $this->inputWithExtensions();
+        $input['name_first'] = $input['first_name'] ?? null;
+        $input['name_last'] = $input['last_name'] ?? null;
+        unset($input['first_name'], $input['last_name']);
 
-        $data['name_first'] = $data['first_name'];
-        $data['name_last'] = $data['last_name'];
-
-        unset($data['first_name'], $data['last_name']);
-
-        return $data;
+        return $input;
     }
 
     /**
@@ -57,5 +75,13 @@ class StoreUserRequest extends ApplicationApiRequest
             'name_last' => 'Last Name',
             'root_admin' => 'Root Administrator Status',
         ];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function extensionFieldsModel(): Model|string
+    {
+        return User::class;
     }
 }

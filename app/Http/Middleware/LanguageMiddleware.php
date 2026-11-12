@@ -1,25 +1,33 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Middleware;
 
-use Illuminate\Http\Request;
+use Closure;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+use Pterodactyl\Models\User;
+use Symfony\Component\HttpFoundation\Response;
 
 class LanguageMiddleware
 {
     /**
      * LanguageMiddleware constructor.
      */
-    public function __construct(private Application $app)
-    {
-    }
+    public function __construct(private readonly Application $app) {}
 
     /**
      * Handle an incoming request and set the user's preferred language.
      */
-    public function handle(Request $request, \Closure $next): mixed
+    /**
+     * @param  Closure(Request):Response  $next
+     * @return Response
+     */
+    public function handle(Request $request, Closure $next): mixed
     {
-        $this->app->setLocale($request->user()->language ?? config('app.locale', 'en'));
+        $user = $request->user();
+        $this->app->setLocale($user instanceof User ? $user->language : config()->string('app.locale', 'en'));
 
         return $next($request);
     }

@@ -1,81 +1,156 @@
-import { action, Action } from 'easy-peasy';
-import { cleanDirectoryPath } from '@/helpers';
+import type { ServerSet, ServerGet } from '@/state/server/types';
 
 export interface FileUploadData {
+    readonly name: string;
     loaded: number;
     readonly abort: AbortController;
     readonly total: number;
 }
 
 export interface ServerFileStore {
-    directory: string;
+    selectedDirectory: string | null;
     selectedFiles: string[];
     uploads: Record<string, FileUploadData>;
 
-    setDirectory: Action<ServerFileStore, string>;
-    setSelectedFiles: Action<ServerFileStore, string[]>;
-    appendSelectedFile: Action<ServerFileStore, string>;
-    removeSelectedFile: Action<ServerFileStore, string>;
+    clearSelectedFiles: () => void;
+    setSelectedFiles: (payload: { directory: string; files: string[] }) => void;
+    appendSelectedFile: (payload: { directory: string; name: string }) => void;
+    removeSelectedFile: (payload: { directory: string; name: string }) => void;
 
-    pushFileUpload: Action<ServerFileStore, { name: string; data: FileUploadData }>;
-    setUploadProgress: Action<ServerFileStore, { name: string; loaded: number }>;
-    clearFileUploads: Action<ServerFileStore>;
-    removeFileUpload: Action<ServerFileStore, string>;
-    cancelFileUpload: Action<ServerFileStore, string>;
+    pushFileUpload: (payload: { id: string; data: FileUploadData }) => void;
+    setUploadProgress: (payload: { id: string; loaded: number }) => void;
+    /** Aborts and forgets every upload. */
+    clearFileUploads: () => void;
+    removeFileUpload: (id: string) => void;
+    /** Aborts and forgets one upload. */
+    cancelFileUpload: (id: string) => void;
 }
 
-const files: ServerFileStore = {
-    directory: '/',
+const withoutUpload = (uploads: Record<string, FileUploadData>, id: string) => {
+    const { [id]: _removed, ...rest } = uploads;
+
+    return rest;
+};
+
+export const createFiles = (set: ServerSet, get: ServerGet): ServerFileStore => ({
+    selectedDirectory: null,
     selectedFiles: [],
     uploads: {},
 
-    setDirectory: action((state, payload) => {
-        state.directory = cleanDirectoryPath(payload);
-    }),
+    clearSelectedFiles: () =>
+        set((state) => ({
+            files: {
+                ...state.files,
+                selectedDirectory: null,
+                selectedFiles: [],
+            },
+        })),
 
-    setSelectedFiles: action((state, payload) => {
-        state.selectedFiles = payload;
-    }),
+    setSelectedFiles: ({ directory, files }) =>
+        set((state) => ({
+            files: {
+                ...state.files,
+                selectedDirectory: directory,
+                selectedFiles: files,
+            },
+        })),
 
-    appendSelectedFile: action((state, payload) => {
-        state.selectedFiles = state.selectedFiles.filter((f) => f !== payload).concat(payload);
-    }),
+    appendSelectedFile: ({ directory, name }) =>
+        set((state) => ({
+            files: {
+                ...state.files,
+                selectedDirectory: directory,
+                selectedFiles:
+                    state.files.selectedDirectory === directory
+                        ? [...state.files.selectedFiles.filter((file) => file !== name), name]
+                        : [name],
+            },
+        })),
 
-    removeSelectedFile: action((state, payload) => {
-        state.selectedFiles = state.selectedFiles.filter((f) => f !== payload);
-    }),
+    removeSelectedFile: ({ directory, name }) =>
+        set((state) => ({
+            files: {
+                ...state.files,
+                selectedDirectory: directory,
+                selectedFiles:
+                    state.files.selectedDirectory === directory
+                        ? state.files.selectedFiles.filter((file) => file !== name)
+                        : [],
+            },
+        })),
 
-    clearFileUploads: action((state) => {
-        Object.values(state.uploads).forEach((upload) => upload.abort.abort());
-
-        state.uploads = {};
-    }),
-
-    pushFileUpload: action((state, payload) => {
-        state.uploads[payload.name] = payload.data;
-    }),
-
-    setUploadProgress: action((state, { name, loaded }) => {
-        if (state.uploads[name]) {
-            state.uploads[name].loaded = loaded;
+    clearFileUploads: () => {
+        for (const upload of Object.values(get().files.uploads)) {
+            upload.abort.abort();
         }
-    }),
 
-    removeFileUpload: action((state, payload) => {
-        if (state.uploads[payload]) {
-            delete state.uploads[payload];
+        set((state) => ({
+            files: {
+                ...state.files,
+                uploads: {},
+            },
+        }));
+    },
+
+    pushFileUpload: ({ id, data }) =>
+        set((state) => ({
+            files: {
+                ...state.files,
+                uploads: {
+                    ...state.files.uploads,
+                    [id]: data,
+                },
+            },
+        })),
+
+    setUploadProgress: ({ id, loaded }) =>
+        set((state) => {
+            const upload = state.files.uploads[id];
+
+            if (!upload) {
+                return state;
+            }
+
+            return {
+                files: {
+                    ...state.files,
+                    uploads: {
+                        ...state.files.uploads,
+                        [id]: {
+                            ...upload,
+                            loaded,
+                        },
+                    },
+                },
+            };
+        }),
+
+    removeFileUpload: (id) =>
+        set((state) => {
+            if (!state.files.uploads[id]) {
+                return state;
+            }
+
+            return {
+                files: {
+                    ...state.files,
+                    uploads: withoutUpload(state.files.uploads, id),
+                },
+            };
+        }),
+
+    cancelFileUpload: (id) => {
+        const upload = get().files.uploads[id];
+
+        if (upload) {
+            upload.abort.abort();
+
+            set((state) => ({
+                files: {
+                    ...state.files,
+                    uploads: withoutUpload(state.files.uploads, id),
+                },
+            }));
         }
-    }),
-
-    cancelFileUpload: action((state, payload) => {
-        if (state.uploads[payload]) {
-            // Abort the request if it is still in flight. If it already completed this is
-            // a no-op.
-            state.uploads[payload].abort.abort();
-
-            delete state.uploads[payload];
-        }
-    }),
-};
-
-export default files;
+    },
+});

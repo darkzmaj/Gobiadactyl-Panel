@@ -1,51 +1,44 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Client\Servers\Schedules;
 
-use Pterodactyl\Models\Task;
+use Pterodactyl\Actions\Schedules\CreateScheduleTask;
+use Pterodactyl\Enum\Permissions;
 use Pterodactyl\Models\Server;
-use Illuminate\Validation\Rule;
-use Pterodactyl\Models\Permission;
+use Pterodactyl\Models\Task;
 
 class StoreTaskRequest extends ViewScheduleRequest
 {
     /**
-     * Determine if the user is allowed to create or update a task for this schedule.
+     * Creating or changing a task needs permission to update the schedule.
      */
     public function permission(): string
     {
-        return Permission::ACTION_SCHEDULE_UPDATE;
+        return Permissions::ScheduleUpdate->value;
     }
 
+    /**
+     * The user also needs the permission for the task's action, such as console access for
+     * a command task. An unknown action or power signal is left to validation to reject.
+     */
     public function authorize(): bool
     {
-        if (!parent::authorize()) {
+        if (! parent::authorize()) {
             return false;
         }
 
-        $permission = Task::permissionForAction((string) $this->input('action'), $this->input('payload'));
-        if (is_null($permission)) {
-            return true;
-        }
+        $permission = Task::permissionForAction($this->string('action')->toString(), $this->string('payload')->toString());
 
-        $server = $this->route()->parameter('server');
-
-        return $server instanceof Server && $this->user()->can($permission, $server);
+        return ! $permission instanceof Permissions || $this->user()->can($permission->value, $this->parameter('server', Server::class));
     }
 
+    /**
+     * @return ValidationRules
+     */
     public function rules(): array
     {
-        return [
-            'action' => 'required|in:command,power,backup',
-            'payload' => [
-                'required_unless:action,backup',
-                'string',
-                'nullable',
-                Rule::when($this->input('action') === Task::ACTION_POWER, [Rule::in(Task::POWER_ACTIONS)]),
-            ],
-            'time_offset' => 'required|numeric|min:0|max:900',
-            'sequence_id' => 'sometimes|required|numeric|min:1',
-            'continue_on_failure' => 'sometimes|required|boolean',
-        ];
+        return CreateScheduleTask::rules($this->input('action') === Task::ACTION_POWER);
     }
 }

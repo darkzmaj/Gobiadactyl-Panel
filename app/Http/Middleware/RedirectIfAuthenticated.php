@@ -1,26 +1,27 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Middleware;
 
+use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Auth\AuthManager;
+use Illuminate\Support\Facades\Auth;
+use Symfony\Component\HttpFoundation\Response;
 
 class RedirectIfAuthenticated
 {
     /**
-     * RedirectIfAuthenticated constructor.
-     */
-    public function __construct(private AuthManager $authManager)
-    {
-    }
-
-    /**
      * Handle an incoming request.
      */
-    public function handle(Request $request, \Closure $next, ?string $guard = null): mixed
+    /**
+     * @param  Closure(Request):Response  $next
+     * @return Response
+     */
+    public function handle(Request $request, Closure $next, ?string $guard = null): mixed
     {
-        if ($this->authManager->guard($guard)->check()) {
-            return redirect()->route('index');
+        if (Auth::guard($guard)->check()) {
+            return to_route('index');
         }
 
         return $next($request);

@@ -1,59 +1,68 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Controllers\Api\Application\Servers;
 
-use Pterodactyl\Models\Server;
-use Pterodactyl\Services\Servers\BuildModificationService;
-use Pterodactyl\Services\Servers\DetailsModificationService;
-use Pterodactyl\Transformers\Api\Application\ServerTransformer;
+use Knuckles\Scribe\Attributes\Endpoint;
+use Knuckles\Scribe\Attributes\Group;
+use Knuckles\Scribe\Attributes\Response as ScribeResponse;
+use Knuckles\Scribe\Attributes\Subgroup;
+use Pterodactyl\Contracts\Servers\UpdatesServerBuild;
+use Pterodactyl\Contracts\Servers\UpdatesServerDetails;
+use Pterodactyl\Exceptions\DisplayException;
+use Pterodactyl\Extensions\Scribe\Attributes\ExtensionFieldsParam;
+use Pterodactyl\Extensions\Scribe\Attributes\ResponseFromResource;
 use Pterodactyl\Http\Controllers\Api\Application\ApplicationApiController;
-use Pterodactyl\Http\Requests\Api\Application\Servers\UpdateServerDetailsRequest;
 use Pterodactyl\Http\Requests\Api\Application\Servers\UpdateServerBuildConfigurationRequest;
+use Pterodactyl\Http\Requests\Api\Application\Servers\UpdateServerDetailsRequest;
+use Pterodactyl\Http\Resources\Api\Application\ServerResource;
+use Pterodactyl\Models\Server;
 
+#[Group('Application API', 'Root administrator endpoints for managing panel resources using application API tokens.')]
+#[Subgroup('Servers', 'Create, update, retrieve, manage, and delete servers.')]
 class ServerDetailsController extends ApplicationApiController
 {
-    /**
-     * ServerDetailsController constructor.
-     */
-    public function __construct(
-        private BuildModificationService $buildModificationService,
-        private DetailsModificationService $detailsModificationService,
-    ) {
-        parent::__construct();
-    }
+    private const array ALLOCATION_ERROR = [
+        'errors' => [
+            [
+                'code' => 'DisplayException',
+                'status' => '400',
+                'detail' => 'The requested default allocation is not currently assigned to this server.',
+            ],
+        ],
+    ];
 
     /**
      * Update the details for a specific server.
      *
-     * @throws \Pterodactyl\Exceptions\DisplayException
-     * @throws \Pterodactyl\Exceptions\Model\DataValidationException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
+     * @throws DisplayException
      */
-    public function details(UpdateServerDetailsRequest $request, Server $server): array
+    #[Endpoint('Update server details', 'Updates ownership and display details for a server.')]
+    #[ResponseFromResource(ServerResource::class, Server::class, factoryStates: ['withRelationships'], resourceKey: 'server')]
+    #[ExtensionFieldsParam]
+    public function details(UpdateServerDetailsRequest $request, UpdatesServerDetails $details, Server $server): ServerResource
     {
-        $updated = $this->detailsModificationService->returnUpdatedModel()->handle(
+        $updated = $details->update(
             $server,
-            $request->validated()
+            $request->actionInput()
         );
 
-        return $this->fractal->item($updated)
-            ->transformWith($this->getTransformer(ServerTransformer::class))
-            ->toArray();
+        return ServerResource::make($updated)->withExtensionFields();
     }
 
     /**
      * Update the build details for a specific server.
      *
-     * @throws \Pterodactyl\Exceptions\DisplayException
-     * @throws \Pterodactyl\Exceptions\Model\DataValidationException
-     * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
+     * @throws DisplayException
      */
-    public function build(UpdateServerBuildConfigurationRequest $request, Server $server): array
+    #[Endpoint('Update server build', 'Updates resource limits, feature limits, and allocations for a server.')]
+    #[ResponseFromResource(ServerResource::class, Server::class, factoryStates: ['withRelationships'], resourceKey: 'server')]
+    #[ScribeResponse(self::ALLOCATION_ERROR, status: 400, description: 'The requested allocation change is invalid.')]
+    public function build(UpdateServerBuildConfigurationRequest $request, UpdatesServerBuild $build, Server $server): ServerResource
     {
-        $server = $this->buildModificationService->handle($server, $request->validated());
+        $server = $build->update($server, $request->actionInput());
 
-        return $this->fractal->item($server)
-            ->transformWith($this->getTransformer(ServerTransformer::class))
-            ->toArray();
+        return ServerResource::make($server)->withExtensionFields();
     }
 }

@@ -1,68 +1,80 @@
-import React, { useEffect, useRef, useState } from 'react';
-import styled from 'styled-components/macro';
-import { useStoreActions, useStoreState } from 'easy-peasy';
+import { useEffect } from 'react';
+import { setHttpProgress, useHttpProgress } from '@/state/httpProgress';
 import { randomInt } from '@/helpers';
-import { CSSTransition } from 'react-transition-group';
-import tw from 'twin.macro';
+import { replaceable, useSkin, type UiTone } from '@/themes/skins';
 
-const BarFill = styled.div`
-    ${tw`h-full bg-cyan-400`};
-    transition: 250ms ease-in-out;
-    box-shadow: 0 -2px 10px 2px hsl(178, 78%, 57%);
-`;
+/** `meter` shows a value in a track; `page` is the loading bar along the top of the page. */
+export type ProgressBarVariant = 'meter' | 'page';
 
-type Timer = ReturnType<typeof setTimeout>;
+export interface ProgressBarProps {
+    /** Percent complete from 0 to 100; `null` shows the track alone. */
+    value: number | null;
+    variant?: ProgressBarVariant;
+    /** Defaults to `accent` for the page bar and `neutral` otherwise. */
+    tone?: UiTone;
+    /** Names a meter for assistive technology. */
+    label?: string;
+    className?: string;
+}
 
-export default () => {
-    const interval = useRef<Timer>(null) as React.MutableRefObject<Timer>;
-    const timeout = useRef<Timer>(null) as React.MutableRefObject<Timer>;
-    const [visible, setVisible] = useState(false);
-    const progress = useStoreState((state) => state.progress.progress);
-    const continuous = useStoreState((state) => state.progress.continuous);
-    const setProgress = useStoreActions((actions) => actions.progress.setProgress);
+function CoreProgressBar({ value, variant = 'meter', tone, label, className }: ProgressBarProps) {
+    const meter = variant === 'meter';
+    const ui = useSkin('ProgressBar', { variant, tone: tone ?? (meter ? 'neutral' : 'accent') });
+
+    return (
+        <div
+            {...ui('root', className)}
+            role={meter ? 'progressbar' : undefined}
+            aria-label={meter ? label : undefined}
+            aria-valuemin={meter ? 0 : undefined}
+            aria-valuemax={meter ? 100 : undefined}
+            aria-valuenow={meter ? (value ?? undefined) : undefined}
+        >
+            {value !== null && <div {...ui('indicator')} style={{ width: `${value}%` }} />}
+        </div>
+    );
+}
+
+const ProgressBar = replaceable('ProgressBar', CoreProgressBar);
+
+export default ProgressBar;
+
+/** The page loading bar, driven by the panel's HTTP requests. */
+export function HttpProgressBar() {
+    const { progress, continuous } = useHttpProgress();
+    const visible = (progress || 0) > 0;
 
     useEffect(() => {
-        return () => {
-            timeout.current && clearTimeout(timeout.current);
-            interval.current && clearInterval(interval.current);
-        };
-    }, []);
-
-    useEffect(() => {
-        setVisible((progress || 0) > 0);
-
-        if (progress === 100) {
-            timeout.current = setTimeout(() => setProgress(undefined), 500);
+        if (progress !== 100) {
+            return;
         }
+
+        const timeout = setTimeout(() => setHttpProgress(undefined), 500);
+
+        return () => clearTimeout(timeout);
     }, [progress]);
 
     useEffect(() => {
         if (!continuous) {
-            interval.current && clearInterval(interval.current);
             return;
         }
 
         if (!progress || progress === 0) {
-            setProgress(randomInt(20, 30));
-        }
-    }, [continuous]);
+            setHttpProgress(randomInt(20, 30));
 
-    useEffect(() => {
-        if (continuous) {
-            interval.current && clearInterval(interval.current);
-            if ((progress || 0) >= 90) {
-                setProgress(90);
-            } else {
-                interval.current = setTimeout(() => setProgress((progress || 0) + randomInt(1, 5)), 500);
-            }
+            return;
         }
-    }, [progress, continuous]);
 
-    return (
-        <div css={tw`w-full fixed`} style={{ height: '2px' }}>
-            <CSSTransition timeout={150} appear in={visible} unmountOnExit classNames={'fade'}>
-                <BarFill style={{ width: progress === undefined ? '100%' : `${progress}%` }} />
-            </CSSTransition>
-        </div>
-    );
-};
+        if (progress >= 90) {
+            setHttpProgress(90);
+
+            return;
+        }
+
+        const timeout = setTimeout(() => setHttpProgress(progress + randomInt(1, 5)), 500);
+
+        return () => clearTimeout(timeout);
+    }, [continuous, progress]);
+
+    return <ProgressBar variant='page' value={visible ? (progress ?? 100) : null} />;
+}

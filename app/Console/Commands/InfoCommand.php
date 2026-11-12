@@ -1,21 +1,19 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Console\Commands;
 
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Pterodactyl\Services\Helpers\SoftwareVersionService;
-use Illuminate\Contracts\Config\Repository as ConfigRepository;
 
+#[Description('Displays the application, database, and email configurations along with the panel version.')]
+#[Signature('p:info')]
 class InfoCommand extends Command
 {
-    protected $description = 'Displays the application, database, and email configurations along with the panel version.';
-
-    protected $signature = 'p:info';
-
-    /**
-     * VersionCommand constructor.
-     */
-    public function __construct(private ConfigRepository $config, private SoftwareVersionService $versionService)
+    public function __construct(private readonly SoftwareVersionService $versionService)
     {
         parent::__construct();
     }
@@ -23,51 +21,51 @@ class InfoCommand extends Command
     /**
      * Handle execution of command.
      */
-    public function handle()
+    public function handle(): void
     {
         $this->output->title('Version Information');
         $this->table([], [
-            ['Panel Version', $this->config->get('app.version')],
+            ['Panel Version', config('app.version')],
             ['Latest Version', $this->versionService->getPanel()],
             ['Up-to-Date', $this->versionService->isLatestPanel() ? 'Yes' : $this->formatText('No', 'bg=red')],
-            ['Unique Identifier', $this->config->get('pterodactyl.service.author')],
+            ['Unique Identifier', config('pterodactyl.service.author')],
         ], 'compact');
 
         $this->output->title('Application Configuration');
         $this->table([], [
-            ['Environment', $this->formatText($this->config->get('app.env'), $this->config->get('app.env') === 'production' ?: 'bg=red')],
-            ['Debug Mode', $this->formatText($this->config->get('app.debug') ? 'Yes' : 'No', !$this->config->get('app.debug') ?: 'bg=red')],
-            ['Installation URL', $this->config->get('app.url')],
+            ['Environment', $this->formatText(config()->string('app.env'), config('app.env') === 'production' ? '' : 'bg=red')],
+            ['Debug Mode', $this->formatText(config('app.debug') ? 'Yes' : 'No', config('app.debug') ? 'bg=red' : '')],
+            ['Installation URL', config('app.url')],
             ['Installation Directory', base_path()],
-            ['Timezone', $this->config->get('app.timezone')],
-            ['Cache Driver', $this->config->get('cache.default')],
-            ['Queue Driver', $this->config->get('queue.default')],
-            ['Session Driver', $this->config->get('session.driver')],
-            ['Filesystem Driver', $this->config->get('filesystems.default')],
-            ['Default Theme', $this->config->get('themes.active')],
-            ['Proxies', $this->config->get('trustedproxies.proxies')],
+            ['Timezone', config('app.timezone')],
+            ['Cache Driver', config('cache.default')],
+            ['Queue Driver', config('queue.default')],
+            ['Session Driver', config('session.driver')],
+            ['Filesystem Driver', config('filesystems.default')],
+            ['Default Theme', config('themes.active')],
+            ['Proxies', config('trustedproxies.proxies')],
         ], 'compact');
 
         $this->output->title('Database Configuration');
-        $driver = $this->config->get('database.default');
+        $driver = config()->string('database.default');
         $this->table([], [
             ['Driver', $driver],
-            ['Host', $this->config->get("database.connections.$driver.host")],
-            ['Port', $this->config->get("database.connections.$driver.port")],
-            ['Database', $this->config->get("database.connections.$driver.database")],
-            ['Username', $this->config->get("database.connections.$driver.username")],
+            ['Host', config("database.connections.$driver.host")],
+            ['Port', config("database.connections.$driver.port")],
+            ['Database', config("database.connections.$driver.database")],
+            ['Username', config("database.connections.$driver.username")],
         ], 'compact');
 
         // TODO: Update this to handle other mail drivers
         $this->output->title('Email Configuration');
         $this->table([], [
-            ['Driver', $this->config->get('mail.default')],
-            ['Host', $this->config->get('mail.mailers.smtp.host')],
-            ['Port', $this->config->get('mail.mailers.smtp.port')],
-            ['Username', $this->config->get('mail.mailers.smtp.username')],
-            ['From Address', $this->config->get('mail.from.address')],
-            ['From Name', $this->config->get('mail.from.name')],
-            ['Encryption', $this->config->get('mail.mailers.smtp.encryption')],
+            ['Driver', config('mail.default')],
+            ['Host', config('mail.mailers.smtp.host')],
+            ['Port', config('mail.mailers.smtp.port')],
+            ['Username', config('mail.mailers.smtp.username')],
+            ['From Address', config('mail.from.address')],
+            ['From Name', config('mail.from.name')],
+            ['Encryption', config('mail.mailers.smtp.encryption')],
         ], 'compact');
     }
 
@@ -76,6 +74,10 @@ class InfoCommand extends Command
      */
     private function formatText(string $value, string $opts = ''): string
     {
+        if ($opts === '') {
+            return $value;
+        }
+
         return sprintf('<%s>%s</>', $opts, $value);
     }
 }

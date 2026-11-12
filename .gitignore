@@ -20,29 +20,35 @@ public/assets/manifest.json
 
 # For local development with docker
 # Remove if we ever put the Dockerfile in the repo
-.dockerignore
 docker-compose.*
 !docker-compose.example.yml
 !docker-compose.example.yaml
 
 # for image related files
 misc
-.php-cs-fixer.cache
+.pint.cache
 coverage.xml
 resources/lang/locales.js
 .phpunit.result.cache
+.phpunit.cache/
 
 /public/build
 /public/hot
 result
 
-# Local tooling, runtime state and updater working files
-/.updater
-/storage/updater
-/storage/app/private/*
-!/storage/app/private/.gitignore
-.phpunit.result.cache
-.idea
-*.pem
-*.key
-*.sqlite
+# Scribe generated output
+.scribe/
+/public/vendor/scribe/
+/resources/views/scribe/
+
+# Extension example build output
+/examples/*/dist
+
+# Local extension development checkouts (Gobia extensions under extensions/gobia-* are tracked; see docs/gobia-core-patches.md)
+/extensions/*
+!/extensions/gobia-*
+
+# Generated SDK test host bundles, core class manifest and packed classic sources
+/packages/sdk/testing-runtime/
+/packages/sdk/core-classes.txt
+/packages/sdk/classic/

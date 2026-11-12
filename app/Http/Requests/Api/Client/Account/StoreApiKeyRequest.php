@@ -1,47 +1,50 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Client\Account;
 
-use IPTools\Range;
-use Pterodactyl\Models\ApiKey;
+use Closure;
 use Illuminate\Validation\Validator;
+use Pterodactyl\Actions\Api\CreateAccountApiKey;
 use Pterodactyl\Http\Requests\Api\Client\ClientApiRequest;
+use Pterodactyl\Validation\Concerns\ValidatesAllowedIps;
 
 class StoreApiKeyRequest extends ClientApiRequest
 {
+    use ValidatesAllowedIps;
+
+    /**
+     * @return ValidationRules
+     */
     public function rules(): array
     {
-        $rules = ApiKey::getRules();
-
-        return [
-            'description' => $rules['memo'],
-            'allowed_ips' => [...$rules['allowed_ips'], 'max:50'],
-            'allowed_ips.*' => 'string',
-        ];
+        return CreateAccountApiKey::rules();
     }
 
     /**
      * Check that each of the values entered is actually valid.
+     *
+     * @return list<Closure(Validator): void>
      */
-    public function withValidator(Validator $validator): void
+    public function after(): array
     {
-        $validator->after(function (Validator $validator) {
-            if (!is_array($ips = $this->input('allowed_ips'))) {
-                return;
-            }
+        return [self::validateAllowedIps(...)];
+    }
 
-            foreach ($ips as $index => $ip) {
-                $valid = false;
-                try {
-                    $valid = Range::parse($ip)->valid();
-                } catch (\Exception $exception) {
-                    if ($exception->getMessage() !== 'Invalid IP address format') {
-                        throw $exception;
-                    }
-                } finally {
-                    $validator->errors()->addIf(!$valid, "allowed_ips.{$index}", '"' . $ip . '" is not a valid IP address or CIDR range.');
-                }
-            }
-        });
+    /**
+     * The validated IP addresses and CIDR ranges the key may be used from, or null when
+     * none were sent.
+     *
+     * @return list<string>|null
+     */
+    public function allowedIps(): ?array
+    {
+        $validated = $this->safe();
+        if (! $validated->filled('allowed_ips')) {
+            return null;
+        }
+
+        return array_map(fn (int|string $key): string => $validated->string('allowed_ips.'.$key)->toString(), array_keys($validated->array('allowed_ips')));
     }
 }

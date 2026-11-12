@@ -1,9 +1,16 @@
-import styled from 'styled-components/macro';
-import tw from 'twin.macro';
+import React from 'react';
+import { useSkin } from '@/themes/skins';
 
-const Label = styled.label<{ isLight?: boolean }>`
-    ${tw`block text-xs uppercase text-neutral-200 mb-1 sm:mb-2`};
-    ${(props) => props.isLight && tw`text-neutral-700`};
-`;
+export type LabelProps<E extends React.ElementType = 'label'> = {
+    as?: E;
+    isLight?: boolean;
+} & Omit<React.ComponentPropsWithoutRef<E>, 'as' | 'isLight'>;
+
+const Label = <E extends React.ElementType = 'label'>({ as, isLight, className, ...props }: LabelProps<E>) => {
+    const Component = (as || 'label') as React.ElementType;
+    const ui = useSkin('Label', { light: !!isLight });
+
+    return <Component {...ui('root', className)} {...props} />;
+};
 
 export default Label;

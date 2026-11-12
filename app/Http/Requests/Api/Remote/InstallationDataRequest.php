@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Remote;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Pterodactyl\Actions\Servers\RecordServerInstallResult;
 
 class InstallationDataRequest extends FormRequest
 {
@@ -11,11 +14,11 @@ class InstallationDataRequest extends FormRequest
         return true;
     }
 
+    /**
+     * @return ValidationRules
+     */
     public function rules(): array
     {
-        return [
-            'successful' => 'present|boolean',
-            'reinstall' => 'sometimes|boolean',
-        ];
+        return RecordServerInstallResult::rules();
     }
 }

@@ -1,34 +1,45 @@
 const _CONVERSION_UNIT = 1024;
 
-/**
- * Given a value in megabytes converts it back down into bytes.
- */
 function mbToBytes(megabytes: number): number {
     return Math.floor(megabytes * _CONVERSION_UNIT * _CONVERSION_UNIT);
 }
 
-/**
- * Given an amount of bytes, converts them into a human readable string format
- * using "1024" as the divisor.
- */
-function bytesToString(bytes: number, decimals = 2): string {
-    const k = _CONVERSION_UNIT;
+const _BYTE_UNITS = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB'];
 
-    if (bytes < 1) return '0 Bytes';
-
-    decimals = Math.floor(Math.max(0, decimals));
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    const value = Number((bytes / Math.pow(k, i)).toFixed(decimals));
-
-    return `${value} ${['Bytes', 'KiB', 'MiB', 'GiB', 'TiB'][i]}`;
+function byteUnitIndex(bytes: number): number {
+    return Math.min(Math.floor(Math.log(bytes) / Math.log(_CONVERSION_UNIT)), _BYTE_UNITS.length - 1);
 }
 
-/**
- * Formats an IPv4 or IPv6 address.
- */
+function scaleBytes(bytes: number, unit: number, decimals: number): number {
+    return Number((bytes / _CONVERSION_UNIT ** unit).toFixed(Math.floor(Math.max(0, decimals))));
+}
+
+function bytesToString(bytes: number, decimals = 2): string {
+    if (bytes < 1) {
+        return '0 Bytes';
+    }
+
+    const i = byteUnitIndex(bytes);
+
+    return `${scaleBytes(bytes, i, decimals)} ${_BYTE_UNITS[i]}`;
+}
+
+function bytesRatioToString(used: number, total: number, decimals = 2): string {
+    const reference = Math.max(total, used);
+
+    if (reference < 1) {
+        return '0 / 0 Bytes';
+    }
+
+    const i = byteUnitIndex(reference);
+
+    return `${scaleBytes(Math.max(0, used), i, decimals)} / ${scaleBytes(total, i, decimals)} ${_BYTE_UNITS[i]}`;
+}
+
+/** Wraps IPv6 addresses in brackets. */
 function ip(value: string): string {
     // noinspection RegExpSimplifiable
     return /([a-f0-9:]+:+)+[a-f0-9]+/.test(value) ? `[${value}]` : value;
 }
 
-export { ip, mbToBytes, bytesToString };
+export { ip, mbToBytes, bytesToString, bytesRatioToString };

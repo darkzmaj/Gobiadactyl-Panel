@@ -1,15 +1,11 @@
-import React, { useContext } from 'react';
-import { DialogContext } from './';
-import { useDeepCompareEffect } from '@/plugins/useDeepCompareEffect';
+import React, { use } from 'react';
+import { useSkin } from '@/themes/skins';
+import { DialogContext } from './context';
 
-export default ({ children }: { children: React.ReactNode }) => {
-    const { setFooter } = useContext(DialogContext);
+const DialogFooter = ({ children }: { children: React.ReactNode }) => {
+    const ui = useSkin('Dialog', { described: use(DialogContext).described });
 
-    useDeepCompareEffect(() => {
-        setFooter(
-            <div className={'px-6 py-3 bg-gray-700 flex items-center justify-end space-x-3 rounded-b'}>{children}</div>
-        );
-    }, [children]);
-
-    return null;
+    return <div {...ui('footer')}>{children}</div>;
 };
+
+export default DialogFooter;

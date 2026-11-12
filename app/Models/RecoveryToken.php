@@ -1,16 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * @property int $id
- * @property int $user_id
- * @property string $token
- * @property \Carbon\CarbonImmutable $created_at
- * @property User $user
- */
 class RecoveryToken extends Model
 {
     /**
@@ -20,14 +15,8 @@ class RecoveryToken extends Model
 
     public $timestamps = true;
 
-    protected bool $immutableDates = true;
-
-    public static array $validationRules = [
-        'token' => 'required|string',
-    ];
-
     /**
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Pterodactyl\Models\User, $this>
+     * @return BelongsTo<User, $this>
      */
     public function user(): BelongsTo
     {

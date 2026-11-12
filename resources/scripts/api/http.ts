@@ -1,5 +1,7 @@
-import axios, { AxiosInstance } from 'axios';
-import { store } from '@/state';
+import type { AxiosInstance, AxiosResponse } from 'axios';
+import axios from 'axios';
+import { completeHttpProgress, startHttpProgress } from '@/state/httpProgress';
+import { isObject, isString } from '@/lib/objects';
 
 const http: AxiosInstance = axios.create({
     withCredentials: true,
@@ -11,9 +13,15 @@ const http: AxiosInstance = axios.create({
     },
 });
 
+const shouldTrackHttpProgress = (url?: string): boolean => !url?.endsWith('/resources');
+
 http.interceptors.request.use((req) => {
-    if (!req.url?.endsWith('/resources')) {
-        store.getActions().progress.startContinuous();
+    if (req.data instanceof FormData) {
+        req.headers.delete('Content-Type');
+    }
+
+    if (shouldTrackHttpProgress(req.url)) {
+        startHttpProgress();
     }
 
     return req;
@@ -21,14 +29,16 @@ http.interceptors.request.use((req) => {
 
 http.interceptors.response.use(
     (resp) => {
-        if (!resp.request?.url?.endsWith('/resources')) {
-            store.getActions().progress.setComplete();
+        if (shouldTrackHttpProgress(resp.config.url)) {
+            completeHttpProgress();
         }
 
         return resp;
     },
     (error) => {
-        store.getActions().progress.setComplete();
+        if (shouldTrackHttpProgress(axios.isAxiosError(error) ? error.config?.url : undefined)) {
+            completeHttpProgress();
+        }
 
         throw error;
     }
@@ -36,125 +46,78 @@ http.interceptors.response.use(
 
 export default http;
 
-/**
- * Converts an error into a human readable response. Mostly just a generic helper to
- * make sure we display the message from the server back to the user if we can.
- */
-export function httpErrorToHuman(error: any): string {
-    if (error.response && error.response.data) {
-        let { data } = error.response;
+function parseJson(text: string): unknown {
+    try {
+        return JSON.parse(text);
+    } catch {
+        return text;
+    }
+}
 
-        // Some non-JSON requests can still return the error as a JSON block. In those cases, attempt
-        // to parse it into JSON so we can display an actual error.
-        if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data);
-            } catch (e) {
-                // do nothing, bad json
-            }
-        }
+/** The message in a JSON:API error body, or in a Wings error body (mostly from file uploads). */
+function responseErrorMessage(response: AxiosResponse): string | undefined {
+    // Non-JSON responses can still carry a JSON error body.
+    const data: unknown = isString(response.data) ? parseJson(response.data) : response.data;
 
-        if (data.errors && data.errors[0] && data.errors[0].detail) {
-            return data.errors[0].detail;
-        }
+    if (!isObject(data)) {
+        return undefined;
+    }
 
-        // Errors from wings directory, mostly just for file uploads.
-        if (data.error && typeof data.error === 'string') {
-            return data.error;
+    if ('errors' in data && Array.isArray(data.errors)) {
+        const firstError: unknown = data.errors[0];
+
+        if (isObject(firstError) && 'detail' in firstError && isString(firstError.detail)) {
+            return firstError.detail;
         }
     }
 
-    return error.message;
+    if ('error' in data && isString(data.error)) {
+        return data.error;
+    }
+
+    return undefined;
 }
 
-export interface FractalResponseData {
-    object: string;
-    attributes: {
-        [k: string]: any;
-        relationships?: Record<string, FractalResponseData | FractalResponseList | null | undefined>;
-    };
+export function httpErrorToHuman(cause: unknown): string {
+    if (axios.isAxiosError(cause) && cause.response?.data) {
+        const message = responseErrorMessage(cause.response);
+
+        if (message !== undefined) {
+            return message;
+        }
+    }
+
+    return cause instanceof Error ? cause.message : 'An unexpected error occurred.';
 }
 
-export interface FractalResponseList {
-    object: 'list';
-    data: FractalResponseData[];
-}
+/** Validation messages keyed by the request path of the field they are about. */
+export type ValidationErrors = Record<string, string>;
 
-export interface FractalPaginatedResponse extends FractalResponseList {
-    meta: {
-        pagination: {
-            total: number;
-            count: number;
-            /* eslint-disable camelcase */
-            per_page: number;
-            current_page: number;
-            total_pages: number;
-            /* eslint-enable camelcase */
-        };
-    };
-}
+/** The first message for each field a validation (422) response rejected. */
+export function httpValidationErrors(cause: unknown): ValidationErrors {
+    if (!axios.isAxiosError(cause) || cause.response?.status !== 422) {
+        return {};
+    }
 
-export interface PaginatedResult<T> {
-    items: T[];
-    pagination: PaginationDataSet;
-}
+    const data: unknown = cause.response.data;
 
-export interface PaginationDataSet {
-    total: number;
-    count: number;
-    perPage: number;
-    currentPage: number;
-    totalPages: number;
-}
+    if (!isObject(data) || !('errors' in data) || !Array.isArray(data.errors)) {
+        return {};
+    }
 
-export function getPaginationSet(data: any): PaginationDataSet {
-    return {
-        total: data.total,
-        count: data.count,
-        perPage: data.per_page,
-        currentPage: data.current_page,
-        totalPages: data.total_pages,
-    };
-}
+    const errors: ValidationErrors = {};
 
-type QueryBuilderFilterValue = string | number | boolean | null;
-
-export interface QueryBuilderParams<FilterKeys extends string = string, SortKeys extends string = string> {
-    page?: number;
-    filters?: {
-        [K in FilterKeys]?: QueryBuilderFilterValue | Readonly<QueryBuilderFilterValue[]>;
-    };
-    sorts?: {
-        [K in SortKeys]?: -1 | 0 | 1 | 'asc' | 'desc' | null;
-    };
-}
-
-/**
- * Helper function that parses a data object provided and builds query parameters
- * for the Laravel Query Builder package automatically. This will apply sorts and
- * filters deterministically based on the provided values.
- */
-export const withQueryBuilderParams = (data?: QueryBuilderParams): Record<string, unknown> => {
-    if (!data) return {};
-
-    const filters = Object.keys(data.filters || {}).reduce((obj, key) => {
-        const value = data.filters?.[key];
-
-        return !value || value === '' ? obj : { ...obj, [`filter[${key}]`]: value };
-    }, {} as NonNullable<QueryBuilderParams['filters']>);
-
-    const sorts = Object.keys(data.sorts || {}).reduce((arr, key) => {
-        const value = data.sorts?.[key];
-        if (!value || !['asc', 'desc', 1, -1].includes(value)) {
-            return arr;
+    for (const error of data.errors) {
+        if (!isObject(error) || !('detail' in error) || !isString(error.detail)) {
+            continue;
         }
 
-        return [...arr, (value === -1 || value === 'desc' ? '-' : '') + key];
-    }, [] as string[]);
+        const field = 'meta' in error && isObject(error.meta) ? error.meta.source_field : undefined;
 
-    return {
-        ...filters,
-        sort: !sorts.length ? undefined : sorts.join(','),
-        page: data.page,
-    };
-};
+        if (isString(field) && !(field in errors)) {
+            errors[field] = error.detail;
+        }
+    }
+
+    return errors;
+}

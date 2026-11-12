@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd" bootstrap="bootstrap/tests.php" colors="true">
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/12.0/phpunit.xsd" bootstrap="bootstrap/tests.php" colors="true">
   <testsuites>
     <testsuite name="Integration">
       <directory>./tests/Integration</directory>
@@ -10,6 +10,14 @@
   </testsuites>
   <php>
     <env name="APP_ENV" value="testing"/>
+    <env name="CACHE_STORE" value="array"/>
+    <env name="DB_DATABASE" value="testing"/>
+    <env name="MAIL_MAILER" value="array"/>
+    <env name="QUEUE_CONNECTION" value="sync"/>
+    <!-- "(false)" rather than "false": PHPUnit turns "false" into an empty string. -->
+    <env name="RECAPTCHA_ENABLED" value="(false)"/>
+    <env name="SESSION_DRIVER" value="array"/>
+    <env name="PTERODACTYL_EXTENSIONS_DIRECTORY" value="tests/Fixtures/extensions"/>
   </php>
   <source>
     <include>

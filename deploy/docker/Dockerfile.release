@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1
+#
+# Gobia Panel image built from a signed release package only (never from a branch):
+#
+#   deploy/docker/build-image.sh <dir holding release.json and gobia-panel-<version>.tar.gz>
+#
+# The build fails unless the manifest's Ed25519 signature verifies against GOBIA_RELEASE_PUBLIC_KEY (default: the
+# Gobia 2.0 release key, the same as extensions/gobia-core/config/gobia_updater.php) and the archive matches the
+# signed SHA-256 and size. The runtime is upstream's image layout (.github/docker), with OPcache timestamp checks
+# off because the code in an image never changes; an update is a new image from the next signed release.
+
+FROM php:8.4-fpm-alpine3.23 AS php-base
+WORKDIR /app
+
+RUN apk add --no-cache \
+        ca-certificates curl dcron freetype icu-libs icu-data-full \
+        libjpeg-turbo libpng libwebp libzip mysql-client nginx su-exec supervisor tzdata \
+    && apk add --no-cache --virtual .build-deps \
+        $PHPIZE_DEPS freetype-dev icu-dev libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" bcmath gd intl opcache pcntl pdo_mysql zip \
+    && apk del .build-deps \
+    && mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+FROM php-base AS release
+ARG GOBIA_RELEASE_PUBLIC_KEY=U/2XlTOgdzsn2lebHDxjkh7HFSNqmYLkm+Hj+3MdVJI=
+COPY extensions/gobia-core/src/Updater/ReleaseSignature.php deploy/docker/verify-release.php /verify/
+COPY release/ /release/
+RUN set -eu; \
+    package="$(ls /release/gobia-panel-*.tar.gz)"; \
+    php /verify/verify-release.php /release/release.json "$package" "$GOBIA_RELEASE_PUBLIC_KEY"; \
+    mkdir -p /app; tar -xzf "$package" -C /app --no-same-owner; \
+    test -z "$(find /app -type l)"; \
+    mkdir -p /app/bootstrap/cache /app/storage/app/private /app/storage/app/public /app/storage/framework/cache/data \
+        /app/storage/framework/sessions /app/storage/framework/views /app/storage/logs; \
+    rm -rf /release /verify
+
+FROM php-base AS runtime
+
+ENV APP_ENV=production \
+    APP_DEBUG=false \
+    QUEUE_WORKER_ENABLED=true \
+    SCHEDULER_ENABLED=true \
+    LARAVEL_OPTIMIZE=true \
+    PHP_FPM_MAX_CHILDREN=16 \
+    PHP_FPM_MAX_REQUESTS=500 \
+    PHP_OPCACHE_MEMORY_CONSUMPTION=192 \
+    PHP_OPCACHE_REVALIDATE_FREQ=0
+
+COPY --from=release /app /app
+COPY .github/docker/ /app/.github/docker/
+COPY .github/docker/default.conf /etc/nginx/http.d/default.conf
+COPY .github/docker/php.ini /usr/local/etc/php/conf.d/zz-panel.ini
+COPY .github/docker/www.conf /usr/local/etc/php-fpm.conf
+COPY .github/docker/supervisord.conf /etc/supervisord.conf
+
+RUN mkdir -p /app/var /app/public/assets/extensions /var/run/php /var/run/nginx /var/log/supervisord \
+    && printf '%s\n' 'opcache.validate_timestamps=0' > /usr/local/etc/php/conf.d/zzz-gobia-image.ini \
+    && chown -R nginx:nginx /app/bootstrap/cache /app/storage /app/var /app/extensions /app/public/assets/extensions \
+    && chmod -R u=rwX,g=rwX,o= /app/bootstrap/cache /app/storage /app/var /app/extensions /app/public/assets/extensions \
+    && printf '%s\n' '* * * * * /usr/local/bin/php /app/artisan schedule:run >> /app/storage/logs/scheduler.log 2>&1' \
+        > /var/spool/cron/crontabs/nginx \
+    && chmod 600 /var/spool/cron/crontabs/nginx
+
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ["/bin/ash", "/app/.github/docker/healthcheck.sh"]
+
+EXPOSE 80
+ENTRYPOINT ["/bin/ash", "/app/.github/docker/entrypoint.sh"]
+CMD ["supervisord", "-n", "-c", "/etc/supervisord.conf"]

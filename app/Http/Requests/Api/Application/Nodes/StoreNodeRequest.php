@@ -1,44 +1,32 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Application\Nodes;
 
+use Illuminate\Database\Eloquent\Model;
+use Pterodactyl\Actions\Nodes\CreateNode;
+use Pterodactyl\Http\Requests\Api\Application\ApplicationApiRequest;
+use Pterodactyl\Http\Requests\Concerns\ValidatesExtensionFields;
 use Pterodactyl\Models\Node;
 use Pterodactyl\Services\Acl\Api\AdminAcl;
-use Pterodactyl\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class StoreNodeRequest extends ApplicationApiRequest
 {
+    use ValidatesExtensionFields;
+
     protected ?string $resource = AdminAcl::RESOURCE_NODES;
 
     protected int $permission = AdminAcl::WRITE;
 
     /**
      * Validation rules to apply to this request.
+     *
+     * @return ValidationRules
      */
-    public function rules(?array $rules = null): array
+    public function rules(): array
     {
-        return collect($rules ?? Node::getRules())->only([
-            'public',
-            'name',
-            'description',
-            'location_id',
-            'fqdn',
-            'scheme',
-            'behind_proxy',
-            'maintenance_mode',
-            'memory',
-            'memory_overallocate',
-            'disk',
-            'disk_overallocate',
-            'upload_size',
-            'daemonListen',
-            'daemonSFTP',
-            'daemonBase',
-        ])->mapWithKeys(function ($value, $key) {
-            $key = ($key === 'daemonSFTP') ? 'daemonSftp' : $key;
-
-            return [snake_case($key) => $value];
-        })->toArray();
+        return CreateNode::rules();
     }
 
     /**
@@ -55,18 +43,10 @@ class StoreNodeRequest extends ApplicationApiRequest
     }
 
     /**
-     * Change the formatting of some data keys in the validated response data
-     * to match what the application expects in the services.
+     * {@inheritdoc}
      */
-    public function validated($key = null, $default = null): array
+    protected function extensionFieldsModel(): Model|string
     {
-        $response = parent::validated();
-        $response['daemonListen'] = $response['daemon_listen'];
-        $response['daemonSFTP'] = $response['daemon_sftp'];
-        $response['daemonBase'] = $response['daemon_base'] ?? (new Node())->getAttribute('daemonBase');
-
-        unset($response['daemon_base'], $response['daemon_listen'], $response['daemon_sftp']);
-
-        return $response;
+        return Node::class;
     }
 }

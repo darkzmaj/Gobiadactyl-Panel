@@ -1,20 +1,42 @@
 import http from '@/api/http';
-import { AxiosError } from 'axios';
-import { History } from 'history';
+import type { AxiosError } from 'axios';
+import { endBootstrapSession, hasBootstrapSession } from '@/bootstrap';
+import { router } from '@/router/router';
+import { parseRedirectSearch } from '@/router/redirect';
+import { isObject } from '@/lib/objects';
 
-export const setupInterceptors = (history: History) => {
+export const setupInterceptors = () => {
     http.interceptors.response.use(
         (resp) => resp,
         (error: AxiosError) => {
+            // 419 is the CSRF failure a stateful request gets once its session has expired.
+            const status = error.response?.status;
+
+            if ((status === 401 || status === 419) && hasBootstrapSession()) {
+                endBootstrapSession();
+                void router.navigate({
+                    to: '/auth/login',
+                    search: parseRedirectSearch({ redirect: router.latestLocation.href }),
+                    replace: true,
+                });
+            }
+
             if (error.response?.status === 400) {
+                const data = error.response.data;
+                const firstError =
+                    isObject(data) && 'errors' in data && Array.isArray(data.errors) ? data.errors[0] : null;
+
                 if (
-                    (error.response?.data as Record<string, any>).errors?.[0].code === 'TwoFactorAuthRequiredException'
+                    isObject(firstError) &&
+                    'code' in firstError &&
+                    firstError.code === 'TwoFactorAuthRequiredException'
                 ) {
                     if (!window.location.pathname.startsWith('/account')) {
-                        history.replace('/account', { twoFactorRedirect: true });
+                        void router.navigate({ to: '/account', replace: true, state: { twoFactorRedirect: true } });
                     }
                 }
             }
+
             throw error;
         }
     );

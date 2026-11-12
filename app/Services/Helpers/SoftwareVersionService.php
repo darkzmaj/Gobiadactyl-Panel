@@ -1,18 +1,21 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Services\Helpers;
 
-use GuzzleHttp\Client;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Arr;
+use Exception;
+use GuzzleHttp\Client;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Pterodactyl\Exceptions\Service\Helper\CdnVersionFetchingException;
 
 class SoftwareVersionService
 {
-    public const VERSION_CACHE_KEY = 'pterodactyl:versioning_data';
+    public const string VERSION_CACHE_KEY = 'pterodactyl:versioning_data';
 
-    private static array $result;
+    /** @var SoftwareVersionData|null */
+    private ?array $result = null;
 
     /**
      * SoftwareVersionService constructor.
@@ -20,16 +23,14 @@ class SoftwareVersionService
     public function __construct(
         protected CacheRepository $cache,
         protected Client $client,
-    ) {
-        self::$result = $this->cacheVersionData();
-    }
+    ) {}
 
     /**
      * Get the latest version of the panel from the CDN servers.
      */
     public function getPanel(): string
     {
-        return Arr::get(self::$result, 'panel') ?? 'error';
+        return $this->versionData()['panel'] ?? 'error';
     }
 
     /**
@@ -37,7 +38,7 @@ class SoftwareVersionService
      */
     public function getDaemon(): string
     {
-        return Arr::get(self::$result, 'wings') ?? 'error';
+        return $this->versionData()['wings'] ?? 'error';
     }
 
     /**
@@ -45,7 +46,7 @@ class SoftwareVersionService
      */
     public function getDiscord(): string
     {
-        return Arr::get(self::$result, 'discord') ?? 'https://pterodactyl.io/discord';
+        return $this->versionData()['discord'] ?? 'https://pterodactyl.io/discord';
     }
 
     /**
@@ -53,7 +54,7 @@ class SoftwareVersionService
      */
     public function getDonations(): string
     {
-        return Arr::get(self::$result, 'donations') ?? 'https://github.com/sponsors/matthewpi';
+        return $this->versionData()['donations'] ?? 'https://github.com/sponsors/matthewpi';
     }
 
     /**
@@ -61,42 +62,67 @@ class SoftwareVersionService
      */
     public function isLatestPanel(): bool
     {
-        if (config('app.version') === 'canary') {
+        $version = config()->string('app.version');
+        if ($version === 'canary') {
             return true;
         }
 
-        return version_compare(config('app.version'), $this->getPanel()) >= 0;
-    }
-
-    /**
-     * Determine if a passed daemon version string is the latest.
-     */
-    public function isLatestDaemon(string $version): bool
-    {
-        if ($version === 'develop') {
-            return true;
-        }
-
-        return version_compare($version, $this->getDaemon()) >= 0;
+        return version_compare($version, $this->getPanel()) >= 0;
     }
 
     /**
      * Keeps the versioning cache up-to-date with the latest results from the CDN.
+     *
+     * @return SoftwareVersionData
+     */
+    protected function versionData(): array
+    {
+        $this->result ??= $this->cacheVersionData();
+
+        return $this->result;
+    }
+
+    /**
+     * @return SoftwareVersionData
      */
     protected function cacheVersionData(): array
     {
-        return $this->cache->remember(self::VERSION_CACHE_KEY, CarbonImmutable::now()->addMinutes(config('pterodactyl.cdn.cache_time', 60)), function () {
+        $cached = $this->cache->remember(self::VERSION_CACHE_KEY, CarbonImmutable::now()->addMinutes(config()->integer('pterodactyl.cdn.cache_time', 60)), function (): array {
             try {
-                $response = $this->client->request('GET', config('pterodactyl.cdn.url'));
+                $response = $this->client->request('GET', config()->string('pterodactyl.cdn.url'), ['timeout' => 5, 'connect_timeout' => 2]);
 
                 if ($response->getStatusCode() === 200) {
-                    return json_decode($response->getBody(), true);
+                    $data = json_decode($response->getBody()->__toString(), true, flags: JSON_THROW_ON_ERROR);
+
+                    return is_array($data) ? $data : [];
                 }
 
-                throw new CdnVersionFetchingException();
-            } catch (\Exception) {
+                throw new CdnVersionFetchingException;
+            } catch (Exception) {
                 return [];
             }
         });
+
+        return $this->normalizeVersionData($cached);
+    }
+
+    /**
+     * @return SoftwareVersionData
+     */
+    private function normalizeVersionData(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach (['panel', 'wings', 'discord', 'donations'] as $key) {
+            $item = $value[$key] ?? null;
+            if (is_string($item)) {
+                $normalized[$key] = $item;
+            }
+        }
+
+        return $normalized;
     }
 }

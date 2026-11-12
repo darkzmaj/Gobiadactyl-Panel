@@ -1,44 +1,34 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Console\Commands\Maintenance;
 
-use Carbon\Carbon;
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Filesystem\Filesystem;
-use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\Storage;
 
+#[Description('Clean orphaned .bak files created when modifying services.')]
+#[Signature('p:maintenance:clean-service-backups')]
 class CleanServiceBackupFilesCommand extends Command
 {
-    public const BACKUP_THRESHOLD_MINUTES = 5;
-
-    protected $description = 'Clean orphaned .bak files created when modifying services.';
-
-    protected $signature = 'p:maintenance:clean-service-backups';
-
-    protected Filesystem $disk;
-
-    /**
-     * CleanServiceBackupFilesCommand constructor.
-     */
-    public function __construct(FilesystemFactory $filesystem)
-    {
-        parent::__construct();
-
-        $this->disk = $filesystem->disk();
-    }
+    public const int BACKUP_THRESHOLD_MINUTES = 5;
 
     /**
      * Handle command execution.
      */
-    public function handle()
+    public function handle(): void
     {
-        $files = $this->disk->files('services/.bak');
+        $disk = Storage::disk();
+        $files = $disk->files('services/.bak');
 
-        collect($files)->each(function (\SplFileInfo $file) {
-            $lastModified = Carbon::createFromTimestamp($this->disk->lastModified($file->getPath()));
-            if ((int) $lastModified->diffInMinutes(Carbon::now()) > self::BACKUP_THRESHOLD_MINUTES) {
-                $this->disk->delete($file->getPath());
-                $this->info(trans('command/messages.maintenance.deleting_service_backup', ['file' => $file->getFilename()]));
+        collect($files)->each(function (string $file) use ($disk): void {
+            $lastModified = Date::createFromTimestamp($disk->lastModified($file));
+            if ($lastModified->diffInMinutes(now()) > self::BACKUP_THRESHOLD_MINUTES) {
+                $disk->delete($file);
+                $this->info(trans('command/messages.maintenance.deleting_service_backup', ['file' => basename($file)]));
             }
         });
     }

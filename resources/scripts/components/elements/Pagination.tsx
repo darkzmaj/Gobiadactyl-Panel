@@ -1,10 +1,8 @@
 import React from 'react';
-import { PaginatedResult } from '@/api/http';
-import tw from 'twin.macro';
-import styled from 'styled-components/macro';
 import Button from '@/components/elements/Button';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAngleDoubleLeft, faAngleDoubleRight } from '@fortawesome/free-solid-svg-icons';
+import { ChevronsLeft, ChevronsRight } from 'lucide-react';
+import Icon from '@/components/elements/Icon';
+import { useSkin, type SkinBinding } from '@/themes/skins';
 
 interface RenderFuncProps<T> {
     items: T[];
@@ -12,30 +10,68 @@ interface RenderFuncProps<T> {
     isFirstPage: boolean;
 }
 
-interface Props<T> {
-    data: PaginatedResult<T>;
+export interface PaginationProps<T> {
+    data: GeneratedPaginatedResult<T>;
     showGoToLast?: boolean;
     showGoToFirst?: boolean;
     onPageSelect: (page: number) => void;
     children: (props: RenderFuncProps<T>) => React.ReactNode;
 }
 
-const Block = styled(Button)`
-    ${tw`p-0 w-10 h-10`}
+interface GeneratedPaginatedResult<T> {
+    data: T[];
+    meta: {
+        pagination: {
+            total: number;
+            count: number;
+            per_page: number;
+            current_page: number;
+            total_pages: number;
+        };
+    };
+}
 
-    &:not(:last-of-type) {
-        ${tw`mr-2`};
-    }
-`;
+interface PaginationDataSet {
+    total: number;
+    count: number;
+    perPage: number;
+    currentPage: number;
+    totalPages: number;
+}
 
-function Pagination<T>({ data: { items, pagination }, onPageSelect, children }: Props<T>) {
+const PageButton = ({
+    ui,
+    current,
+    ...props
+}: { ui: SkinBinding<'Pagination'>; current: boolean } & React.ComponentProps<typeof Button>) => (
+    <Button
+        type='button'
+        className={ui.classes('page', undefined, { current })}
+        isSecondary={!current}
+        color='primary'
+        {...props}
+    />
+);
+
+const normalizeGeneratedPagination = (
+    pagination: GeneratedPaginatedResult<unknown>['meta']['pagination']
+): PaginationDataSet => ({
+    total: pagination.total,
+    count: pagination.count,
+    perPage: pagination.per_page,
+    currentPage: pagination.current_page,
+    totalPages: pagination.total_pages,
+});
+
+function Pagination<T>({ data, onPageSelect, children }: PaginationProps<T>) {
+    const ui = useSkin('Pagination', {});
+    const items = data.data;
+    const pagination = normalizeGeneratedPagination(data.meta.pagination);
     const isFirstPage = pagination.currentPage === 1;
     const isLastPage = pagination.currentPage >= pagination.totalPages;
 
     const pages = [];
 
-    // Start two spaces before the current page. If that puts us before the starting page default
-    // to the first page as the starting point.
     const start = Math.max(pagination.currentPage - 2, 1);
     const end = Math.min(pagination.totalPages, pagination.currentPage + 5);
 
@@ -47,26 +83,26 @@ function Pagination<T>({ data: { items, pagination }, onPageSelect, children }: 
         <>
             {children({ items, isFirstPage, isLastPage })}
             {pages.length > 1 && (
-                <div css={tw`mt-4 flex justify-center`}>
+                <div {...ui('root')}>
                     {pages[0] > 1 && !isFirstPage && (
-                        <Block isSecondary color={'primary'} onClick={() => onPageSelect(1)}>
-                            <FontAwesomeIcon icon={faAngleDoubleLeft} />
-                        </Block>
+                        <PageButton ui={ui} current={false} onClick={() => onPageSelect(1)}>
+                            <Icon icon={ChevronsLeft} />
+                        </PageButton>
                     )}
-                    {pages.map((i) => (
-                        <Block
-                            isSecondary={pagination.currentPage !== i}
-                            color={'primary'}
-                            key={`block_page_${i}`}
-                            onClick={() => onPageSelect(i)}
+                    {pages.map((page) => (
+                        <PageButton
+                            key={`block_page_${page}`}
+                            ui={ui}
+                            current={pagination.currentPage === page}
+                            onClick={() => onPageSelect(page)}
                         >
-                            {i}
-                        </Block>
+                            {page}
+                        </PageButton>
                     ))}
                     {pages[4] < pagination.totalPages && !isLastPage && (
-                        <Block isSecondary color={'primary'} onClick={() => onPageSelect(pagination.totalPages)}>
-                            <FontAwesomeIcon icon={faAngleDoubleRight} />
-                        </Block>
+                        <PageButton ui={ui} current={false} onClick={() => onPageSelect(pagination.totalPages)}>
+                            <Icon icon={ChevronsRight} />
+                        </PageButton>
                     )}
                 </div>
             )}

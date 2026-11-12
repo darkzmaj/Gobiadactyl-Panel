@@ -1,18 +1,35 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pterodactyl\Http\Requests\Api\Application\Users;
 
+use Pterodactyl\Actions\Users\CreateUser;
 use Pterodactyl\Models\User;
 
 class UpdateUserRequest extends StoreUserRequest
 {
+    public function authorize(): bool
+    {
+        return parent::authorize() && (! $this->parameter('user', User::class)->root_admin || $this->canManageAdministrators());
+    }
+
     /**
      * Return the validation rules for this request.
+     *
+     * @param  NormalizedValidationRules|null  $rules
+     * @return ValidationRules
      */
     public function rules(?array $rules = null): array
     {
-        $userId = $this->parameter('user', User::class)->id;
+        return parent::rules(CreateUser::rules($this->parameter('user', User::class)));
+    }
 
-        return parent::rules(User::getRulesForUpdate($userId));
+    /**
+     * {@inheritdoc}
+     */
+    protected function extensionFieldsModel(): User
+    {
+        return $this->parameter('user', User::class);
     }
 }
