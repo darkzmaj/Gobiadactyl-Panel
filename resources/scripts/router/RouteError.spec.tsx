@@ -45,6 +45,7 @@ function mount(loader: () => unknown) {
         history: createMemoryHistory({ initialEntries: ['/page'] }),
         defaultErrorComponent: RouteError,
     });
+
     render(
         <QueryClientProvider client={new QueryClient()}>
             <RouterProvider router={router} />
@@ -63,6 +64,7 @@ it('continues at sign in and ends the session when a loader is unauthenticated',
 
     expect(await screen.findByText('sign in')).toBeVisible();
     expect(router.state.location.pathname).toBe('/auth/login');
+    expect(router.state.location.search).toEqual({ redirect: '/page' });
     expect(hasBootstrapSession()).toBe(false);
 });
 
@@ -89,6 +91,7 @@ it('shows the not found screen for missing resources', async () => {
 
 it('retries other failures by reloading the route', async () => {
     const loader = vi.fn().mockRejectedValueOnce(httpError(500)).mockResolvedValue(null);
+
     mount(loader);
 
     fireEvent.click(await screen.findByRole('button', { name: 'failed with 500' }));

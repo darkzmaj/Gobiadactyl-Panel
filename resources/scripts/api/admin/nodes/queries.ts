@@ -65,6 +65,7 @@ import {
     type Options,
 } from '@/api/generated';
 import { notifyHttpError } from '@/plugins/notifications';
+import type { ExtensionFormValues } from '@/extensions/forms';
 
 export type AdminNode = AdminNodeResource;
 export type AdminNodeSort = 'id' | 'uuid' | 'name' | 'memory' | 'disk' | 'created_at';
@@ -87,6 +88,7 @@ export interface NodeValues {
     daemonListen: number;
     daemonSftp: number;
     daemonBase: string;
+    extensions: ExtensionFormValues;
 }
 
 export type AdminAllocation = AdminAllocationResource;
@@ -124,6 +126,10 @@ const allAdminNodesInput = {
     query: { sort: 'id', per_page: MAX_PER_PAGE, include: adminNodeListInclude },
 } satisfies Options<AdminListNodesData>;
 
+const allAdminNodeTagsInput = {
+    query: { sort: 'id', per_page: MAX_PER_PAGE, include: 'tags' },
+} satisfies Options<AdminListNodesData>;
+
 const nodeListSortFields = ['name', 'memory', 'disk', 'created_at'] as const;
 
 export const adminNodeListSorts = (sort?: AdminNodeListSort): AdminNodesQueryParams['sorts'] =>
@@ -156,6 +162,7 @@ const nodeValuesToCreateBody = (values: NodeValues): AdminCreateNodeData['body']
     daemon_listen: values.daemonListen,
     daemon_sftp: values.daemonSftp,
     daemon_base: values.daemonBase,
+    extensions: values.extensions,
 });
 
 const nodeValuesToUpdateBody = (values: NodeValues, resetSecret = false): AdminUpdateNodeData['body'] => ({
@@ -172,7 +179,7 @@ export const updateAdminNodeInput = (
     values: NodeValues,
     resetSecret = false
 ): Options<AdminUpdateNodeData> => ({
-    path: { id },
+    path: { node_id: id },
     body: nodeValuesToUpdateBody(values, resetSecret),
 });
 
@@ -202,7 +209,7 @@ export const updateAdminNodeAllocationAliasInput = (
     allocationId: number,
     alias: string
 ): Options<AdminUpdateNodeAllocationData> => ({
-    path: { node_id: nodeId, id: allocationId },
+    path: { node_id: nodeId, allocation_id: allocationId },
     body: { alias },
 });
 
@@ -268,6 +275,12 @@ export const allAdminNodesQueryOptions = () =>
         adminListNodes({ query: { ...allAdminNodesInput.query, page }, signal }).then(({ data }) => data)
     );
 
+/** Every node with the egg tags that decide which eggs it accepts. */
+export const allAdminNodeTagsQueryOptions = () =>
+    allPagesQueryOptions(adminListNodesQueryKey(allAdminNodeTagsInput), (page, signal) =>
+        adminListNodes({ query: { ...allAdminNodeTagsInput.query, page }, signal }).then(({ data }) => data)
+    );
+
 export const adminNodesQueryOptions = (params: AdminNodesQueryParams = {}) =>
     adminListNodesOptions({ query: { ...listQuery(params), include: adminNodeListInclude } });
 
@@ -275,6 +288,14 @@ export const adminNodeQueryOptions = (id: number) => ({
     ...adminGetNodeOptions({
         path: { node_id: id },
         query: { include: 'location' },
+    }),
+    enabled: Number.isInteger(id) && id > 0,
+});
+
+export const adminNodeTagsQueryOptions = (id: number) => ({
+    ...adminGetNodeOptions({
+        path: { node_id: id },
+        query: { include: 'tags,deployment_tags' },
     }),
     enabled: Number.isInteger(id) && id > 0,
 });
@@ -328,6 +349,12 @@ export const useAdminNodes = (params: AdminNodesQueryParams = {}, options?: Admi
 export const useAdminNode = (id: number, options?: ResourceQueryOverrides) =>
     useQuery(withQueryOverrides(adminNodeQueryOptions(id), options));
 
+export const useAdminNodeTags = (id: number, options?: ResourceQueryOverrides) =>
+    useQuery(withQueryOverrides(adminNodeTagsQueryOptions(id), options));
+
+export const useAllAdminNodeTags = (options?: ResourceQueryOverrides) =>
+    useQuery({ ...allAdminNodeTagsQueryOptions(), enabled: options?.enabled });
+
 const combineNodesByLocation = ([nodes, locations]: [
     UseQueryResult<AdminListNodesResponse>,
     UseQueryResult<AdminListLocationsResponse>,
@@ -366,11 +393,13 @@ export const useAdminNodeAllocations = (id: number, page: number, options?: Reso
 
 export const useCreateAdminNode = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminCreateNodeMutation(),
         onSuccess: async (node) => {
             await invalidateGeneratedOperations(queryClient, ['adminListNodes']);
             const messages = resourceMutationMessages('node', 'create', node.attributes.name);
+
             toast.success(messages.success.title, { description: messages.success.description });
         },
         onError: (error) => notifyHttpError(error, resourceMutationMessages('node', 'create').errorTitle),
@@ -379,17 +408,19 @@ export const useCreateAdminNode = () => {
 
 export const useUpdateAdminNode = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminUpdateNodeMutation(),
         onSuccess: async (node, variables) => {
             await Promise.all([
                 invalidateGeneratedOperations(queryClient, ['adminListNodes']),
-                queryClient.invalidateQueries({ queryKey: adminNodeDetailKey(variables.path.id) }),
+                queryClient.invalidateQueries({ queryKey: adminNodeDetailKey(variables.path.node_id) }),
                 queryClient.invalidateQueries({
-                    queryKey: adminGetNodeConfigurationQueryKey({ path: { node_id: variables.path.id } }),
+                    queryKey: adminGetNodeConfigurationQueryKey({ path: { node_id: variables.path.node_id } }),
                 }),
             ]);
             const messages = resourceMutationMessages('node', 'update', node.attributes.name);
+
             toast.success(messages.success.title, { description: messages.success.description });
         },
         onError: (error) => notifyHttpError(error, resourceMutationMessages('node', 'update').errorTitle),
@@ -398,15 +429,18 @@ export const useUpdateAdminNode = () => {
 
 export const useDeleteAdminNode = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminDeleteNodeMutation(),
         onSuccess: async (_data, variables) => {
             for (const queryKey of adminNodeScopedKeys(variables.path.node_id)) {
                 removeQueriesWhenUnobserved(queryClient, { queryKey });
             }
+
             await invalidateGeneratedOperations(queryClient, ['adminListNodes']);
             const name = variables.meta?.name;
             const messages = resourceMutationMessages('node', 'delete', name);
+
             toast.success(messages.success.title, { description: messages.success.description });
         },
         onError: (error) => notifyHttpError(error, resourceMutationMessages('node', 'delete').errorTitle),
@@ -421,6 +455,7 @@ export const useGenerateAdminNodeDeployToken = () =>
 
 export const useCreateAdminNodeAllocations = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminCreateNodeAllocationsMutation(),
         onSuccess: async (_data, variables) => {
@@ -433,6 +468,7 @@ export const useCreateAdminNodeAllocations = () => {
 
 export const useUpdateAdminNodeAllocationAlias = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminUpdateNodeAllocationMutation(),
         onSuccess: (_data, variables) => invalidateAdminNodeAllocations(queryClient, [variables.path.node_id]),
@@ -442,6 +478,7 @@ export const useUpdateAdminNodeAllocationAlias = () => {
 
 export const useDeleteAdminNodeAllocation = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminDeleteNodeAllocationMutation(),
         onSuccess: (_data, variables) => invalidateAdminNodeAllocations(queryClient, [variables.path.node_id]),
@@ -451,6 +488,7 @@ export const useDeleteAdminNodeAllocation = () => {
 
 export const useBulkDeleteAdminNodeAllocations = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminBulkDeleteNodeAllocationsMutation(),
         onSuccess: async (_data, variables) => {
@@ -463,6 +501,7 @@ export const useBulkDeleteAdminNodeAllocations = () => {
 
 export const useDeleteAdminNodeIpBlockAllocations = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminDeleteNodeAllocationIpBlockMutation(),
         onSuccess: async (_data, variables) => {

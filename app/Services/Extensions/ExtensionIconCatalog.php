@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pterodactyl\Services\Extensions;
 
 use Illuminate\Support\Facades\File;
-use Pterodactyl\Support\JsonValueGuard;
 
 /**
  * The lucide icon names this panel build can render for `nav.icon`. The list is
@@ -17,13 +16,13 @@ final class ExtensionIconCatalog
     public const string PATH = 'packages/sdk/icons.json';
 
     /**
-     * The navigation icons a manifest declares that this panel does not ship.
+     * The icons a manifest declares that this panel does not ship.
      *
      * @return list<string>
      */
     public function unknownIcons(ExtensionManifest $manifest): array
     {
-        $declared = [];
+        $declared = array_filter([$manifest->iconName()]);
         foreach ($manifest->screens as $screen) {
             if (isset($screen['nav']['icon'])) {
                 $declared[] = $screen['nav']['icon'];
@@ -36,6 +35,6 @@ final class ExtensionIconCatalog
     /** @return list<string> */
     public function names(): array
     {
-        return JsonValueGuard::stringList(File::json(base_path(self::PATH)));
+        return array_values(array_filter(File::json(base_path(self::PATH)), is_string(...)));
     }
 }

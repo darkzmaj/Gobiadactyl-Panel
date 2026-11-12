@@ -1,4 +1,4 @@
-import { useCurrentServer, usePanelNavigate, type ReplacementProps } from '@pterodactyl/sdk';
+import { useCurrentServer, usePanelNavigate, type ViewProps } from '@pterodactyl/sdk';
 import { useEffect } from 'react';
 // The same key as `OPEN_KEY` in session.ts; not imported so the redirect and the workspace share no extra chunk.
 const OPEN_KEY = (uuid: string) => `gobia-files:open:${uuid}`;
@@ -7,7 +7,7 @@ const OPEN_KEY = (uuid: string) => `gobia-files:open:${uuid}`;
  * Replaces the core file editor page: a link that points at it (an activity entry, a bookmark) lands in the workspace
  * with the file open, so there is one editor in the product.
  */
-export default function EditorRedirect({ model }: ReplacementProps<'server.files.editor'>) {
+export default function EditorRedirect({ model }: ViewProps<'server.files.editor'>) {
     const navigate = usePanelNavigate();
     const server = useCurrentServer();
     const uuid = server?.attributes.uuid;

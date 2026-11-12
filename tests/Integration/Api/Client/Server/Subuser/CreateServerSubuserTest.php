@@ -6,10 +6,12 @@ namespace Pterodactyl\Tests\Pest\Integration\Api\Client\Server\Subuser\CreateSer
 
 use Illuminate\Foundation\Testing\WithFaker;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Pterodactyl\Enum\Permissions;
 use Pterodactyl\Models\Subuser;
 use Pterodactyl\Models\User;
+use Pterodactyl\Rules\Username;
 use Pterodactyl\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 uses(ClientApiIntegrationTestCase::class);
@@ -31,6 +33,7 @@ test('subuser can be created', function (array $permissions): void {
         'username' => $subuser->username,
         'email' => $email,
         'image' => 'https://gravatar.com/avatar/'.md5(Str::lower($email)),
+        'avatar' => null,
         '2fa_enabled' => false,
         'created_at' => $subuser->created_at->toAtomString(),
         'permissions' => [Permissions::UserCreate->value, Permissions::WebsocketConnect->value],
@@ -45,6 +48,13 @@ test('inviting a new email address logs the user it creates', function (): void 
     expect($log->actor_id)->toBe($user->id)
         ->and($log->properties->get('email'))->toBe($email);
 });
+test('a user created by invitation gets a valid username', function (string $email): void {
+    [$user, $server] = $this->generateTestAccount();
+    $this->actingAs($user)->postJson($this->link($server).'/users', ['email' => $email, 'permissions' => [Permissions::UserCreate->value]])->assertOk();
+
+    $username = User::query()->where('email', $email)->firstOrFail()->username;
+    expect(Validator::make(['username' => $username], ['username' => new Username])->passes())->toBeTrue("[{$username}] is not a valid username.");
+})->with(['leading underscore' => ['_alice@example.com'], 'only punctuation' => ['_@example.com']]);
 test('inviting an existing user does not log a user creation', function (): void {
     [$user, $server] = $this->generateTestAccount();
     $existing = User::factory()->create();

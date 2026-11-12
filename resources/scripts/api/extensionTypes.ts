@@ -1,8 +1,12 @@
 export type {
+    AdminDatabaseHostResource,
+    AdminLocationResource,
+    AdminMountResource,
     AdminNodeResource,
     AdminServerResource,
     AdminEggResource,
     AdminUserResource,
+    ClientActivityLogAttributes,
     ClientGetStartupConfigurationResponse,
     ClientFileObjectResource,
     ClientGetServerResponse,
@@ -12,6 +16,7 @@ export type {
     ClientListServerBackupsResponse,
     ClientGetExtensionJobProgressResponse,
     ClientSendPowerActionRequest,
+    ExtensionFields,
 } from './generated/types.gen';
 
 import type { ClientGetExtensionJobProgressResponse } from './generated/types.gen';

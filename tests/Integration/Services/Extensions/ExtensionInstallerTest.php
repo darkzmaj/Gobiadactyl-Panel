@@ -23,6 +23,7 @@ use Pterodactyl\Events\Extensions\ExtensionInstalled;
 use Pterodactyl\Events\Extensions\ExtensionInstalling;
 use Pterodactyl\Events\Extensions\ExtensionRemoved;
 use Pterodactyl\Events\Extensions\ExtensionRemoving;
+use Pterodactyl\Exceptions\Extensions\ExtensionAlreadyInstalledException;
 use Pterodactyl\Exceptions\Extensions\InvalidExtensionException;
 use Pterodactyl\Models\Extension;
 use Pterodactyl\Services\Extensions\ExtensionAssetPublisher;
@@ -89,7 +90,7 @@ function writeExtension(string $identifier): string
 
 test('asset rollback failures preserve the previous package and the original error', function (): void {
     $source = writeExtension('eventful');
-    $this->app->make(InstallsExtensions::class)->install($source);
+    $this->app->make(InstallsExtensions::class)->install($source, enable: true);
     File::put($source.'/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '2.0.0'], JSON_THROW_ON_ERROR));
     Exceptions::fake();
     $assets = Mockery::mock(ExtensionAssetPublisher::class)->makePartial();
@@ -97,17 +98,17 @@ test('asset rollback failures preserve the previous package and the original err
     $assets->shouldReceive('activate')->once()->andThrow(new RuntimeException('asset rollback failed'));
     $this->app->instance(ExtensionAssetPublisher::class, $assets);
 
-    expect(fn () => $this->app->make(InstallsExtensions::class)->install($source))->toThrow(RuntimeException::class, 'asset publication failed');
+    expect(fn () => $this->app->make(InstallsExtensions::class)->install($source, replace: true))->toThrow(RuntimeException::class, 'asset publication failed');
 
     expect($this->app->make(ExtensionManifestValidator::class)->fromDirectory($this->installDirectory.'/eventful')->version)->toBe('1.0.0');
-    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => false]);
+    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => true]);
     Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'asset rollback failed');
     expect(glob($this->installDirectory.'/.previous-*'))->toBeEmpty();
 });
 
 test('a failed package restore retains the backup for manual recovery', function (): void {
     $source = writeExtension('eventful');
-    $this->app->make(InstallsExtensions::class)->install($source);
+    $this->app->make(InstallsExtensions::class)->install($source, enable: true);
     File::put($source.'/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '2.0.0'], JSON_THROW_ON_ERROR));
     Exceptions::fake();
     $filesystem = File::getFacadeRoot();
@@ -122,7 +123,7 @@ test('a failed package restore retains the backup for manual recovery', function
     $assets->shouldReceive('publish')->once()->andThrow(new RuntimeException('asset publication failed'));
     $this->app->instance(ExtensionAssetPublisher::class, $assets);
 
-    expect(fn () => $this->app->make(InstallsExtensions::class)->install($source))->toThrow(RuntimeException::class, 'asset publication failed');
+    expect(fn () => $this->app->make(InstallsExtensions::class)->install($source, replace: true))->toThrow(RuntimeException::class, 'asset publication failed');
 
     $backups = glob($this->installDirectory.'/.previous-*');
     expect($backups)->toHaveCount(1);
@@ -270,6 +271,35 @@ test('provider recovery clears errors in one write and leaves healthy timestamps
     }
 });
 
+test('a clean boot keeps runtime failures and writes nothing without a load failure', function (): void {
+    $repository = $this->app->make(ExtensionRepository::class);
+    try {
+        $this->app->make(InstallsExtensions::class)->install(writeExtension('runtime-failure'), enable: true);
+        $repository->recordFailure('runtime-failure', 'listener exploded', new RuntimeException('listener exploded'), 'event');
+        $enabled = $repository->enabled();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $this->app->make(ExtensionProviderLoader::class)->registerProviders($enabled);
+            $writes = array_filter(DB::getQueryLog(), fn (array $query): bool => str_starts_with(mb_strtolower($query['query']), 'update'));
+            expect($writes)->toBe([]);
+        } finally {
+            DB::disableQueryLog();
+        }
+
+        $record = Extension::query()->where('identifier', 'runtime-failure')->firstOrFail();
+        expect($record->error)->toBe('listener exploded')
+            ->and($record->error_phase)->toBe('event')
+            ->and($record->errored_at)->not->toBeNull();
+
+        $this->app->make(SetsExtensionEnabled::class)->setEnabled('runtime-failure', false);
+        expect(Extension::query()->where('identifier', 'runtime-failure')->firstOrFail()->only(['error', 'error_phase', 'errored_at']))
+            ->toBe(['error' => null, 'error_phase' => null, 'errored_at' => null]);
+    } finally {
+        Extension::query()->where('identifier', 'runtime-failure')->delete();
+    }
+});
+
 test('extension settings batch reads preserve values and subsequent mutations', function (): void {
     $settings = [];
     for ($i = 0; $i < 10; $i++) {
@@ -312,7 +342,7 @@ test('a replacement without its build preserves the installed package and asset 
     File::put($source.'/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '2.0.0', 'ui' => ['entry' => 'dist/client.js']], JSON_THROW_ON_ERROR));
     File::deleteDirectory($source.'/dist');
 
-    expect(fn () => $installer->install($source))->toThrow(InvalidExtensionException::class, 'built file is missing');
+    expect(fn () => $installer->install($source, replace: true))->toThrow(InvalidExtensionException::class, 'built file is missing');
     expect(File::get($this->installDirectory.'/eventful/dist/client.js'))->toContain('version = 1');
     expect($assets->entryUrl($original))->toBe($url);
     expect($assets->publishedPath('eventful').'/'.$version.'/chunks/lazy.js')->toBeFile();
@@ -339,9 +369,9 @@ test('a build without its declared tailwind prefix is neither installed nor enab
     $source = writeStyled('eventful', 'ev', 'ev', '2.0.0');
     File::put($source.'/dist/index.css', '@layer utilities{.flex{display:flex}}');
 
-    expect(fn () => $installer->install($source))->toThrow(InvalidExtensionException::class, 'ships Tailwind utilities in dist/index.css (.flex) without its "ev" prefix');
-    expect(fn () => $installer->install(writeStyled('eventful', 'ev', 'ext', '2.0.0')))->toThrow(InvalidExtensionException::class, 'ships Tailwind utilities in dist/index.css (.ext\:flex) without its "ev" prefix');
-    expect(fn () => $installer->install(writeStyled('eventful', null, 'ev', '2.0.0')))->toThrow(InvalidExtensionException::class, 'declares no Tailwind prefix - add "prefix": "eventful" to "ui" in extension.json');
+    expect(fn () => $installer->install($source, replace: true))->toThrow(InvalidExtensionException::class, 'ships Tailwind utilities in dist/index.css (.flex) without its "ev" prefix');
+    expect(fn () => $installer->install(writeStyled('eventful', 'ev', 'ext', '2.0.0'), replace: true))->toThrow(InvalidExtensionException::class, 'ships Tailwind utilities in dist/index.css (.ext\:flex) without its "ev" prefix');
+    expect(fn () => $installer->install(writeStyled('eventful', null, 'ev', '2.0.0'), replace: true))->toThrow(InvalidExtensionException::class, 'declares no Tailwind prefix - add "prefix": "eventful" to "ui" in extension.json');
     expect(File::get($this->installDirectory.'/eventful/dist/index.css'))->toContain('.ev\:flex');
     $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => false]);
 
@@ -370,8 +400,8 @@ test('two enabled extensions cannot build with the same tailwind prefix', functi
         Event::assertNothingDispatched();
         $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'enabled' => false]);
 
-        $installer->install(writeStyled('eventful', 'ev', 'ev', '1.1.0'), enable: true);
-        expect(fn () => $installer->install(writeStyled('eventful', 'shared', 'shared', '2.0.0')))
+        $installer->install(writeStyled('eventful', 'ev', 'ev', '1.1.0'), enable: true, replace: true);
+        expect(fn () => $installer->install(writeStyled('eventful', 'shared', 'shared', '2.0.0'), replace: true))
             ->toThrow(InvalidExtensionException::class, 'cannot use Tailwind prefix "shared": enabled extension "prefix-owner" also declares it.');
         $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.1.0', 'enabled' => true]);
         expect(File::get($this->installDirectory.'/eventful/dist/index.css'))->toContain('.ev\:flex');
@@ -393,7 +423,7 @@ test('successful upgrades preserve old chunks and point new sessions at new cont
     $url = $assets->entryUrl($original);
     $oldVersion = $assets->currentVersion('eventful');
     File::put($source.'/dist/client.js', 'export const version = 2;');
-    $replacement = $installer->install($source);
+    $replacement = $installer->install($source, replace: true);
 
     expect($assets->entryUrl($replacement))->not->toBe($url);
     expect(File::get($assets->publishedPath('eventful').'/'.$oldVersion.'/chunks/lazy.js'))->toContain('lazy = 1');
@@ -409,7 +439,7 @@ test('migration failure leaves a new extension inactive and restores an enabled 
     File::ensureDirectoryExists($source.'/database/migrations');
     Artisan::shouldReceive('call')->with('migrate', Mockery::type('array'))->twice()->andReturn(1);
 
-    expect(fn () => $installer->install($source))->toThrow(InvalidExtensionException::class, 'migrations failed');
+    expect(fn () => $installer->install($source, replace: true))->toThrow(InvalidExtensionException::class, 'migrations failed');
     $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => true]);
     expect((new ExtensionManifestValidator)->fromDirectory($this->installDirectory.'/eventful')->version)->toBe('1.0.0');
     Extension::query()->where('identifier', 'eventful')->delete();
@@ -418,6 +448,17 @@ test('migration failure leaves a new extension inactive and restores an enabled 
     expect(fn () => $installer->install($source, enable: true))->toThrow(InvalidExtensionException::class, 'migrations failed');
     $this->assertDatabaseMissing('extensions', ['identifier' => 'eventful']);
     expect($this->installDirectory.'/eventful')->not->toBeDirectory();
+});
+
+test('enabling refuses a migration Laravel would treat as already run', function (): void {
+    $source = writeExtension('eventful');
+    $core = basename((string) (glob(database_path('migrations').'/*_*.php') ?: [''])[0]);
+    File::ensureDirectoryExists($source.'/database/migrations');
+    File::put($source.'/database/migrations/'.$core, '<?php');
+    Artisan::shouldReceive('call')->never();
+
+    expect(fn () => $this->app->make(InstallsExtensions::class)->install($source, enable: true))->toThrow(InvalidExtensionException::class, 'the panel has a migration with the same name');
+    $this->assertDatabaseMissing('extensions', ['identifier' => 'eventful']);
 });
 
 test('completion observer failures do not undo committed upgrades', function (string $event): void {
@@ -430,7 +471,7 @@ test('completion observer failures do not undo committed upgrades', function (st
         throw new RuntimeException('activation listener failed');
     });
 
-    $installed = $installer->install($source);
+    $installed = $installer->install($source, replace: true);
 
     $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '2.0.0', 'enabled' => true]);
     expect($this->app->make(ExtensionManifestValidator::class)->fromDirectory($installed->directory)->version)->toBe('2.0.0');
@@ -446,7 +487,7 @@ test('pre-activation observers can reject an upgrade without changing the instal
         throw new RuntimeException('upgrade rejected');
     });
 
-    expect(fn () => $installer->install($source))->toThrow(RuntimeException::class, 'upgrade rejected');
+    expect(fn () => $installer->install($source, replace: true))->toThrow(RuntimeException::class, 'upgrade rejected');
 
     $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => true]);
     expect($this->app->make(ExtensionManifestValidator::class)->fromDirectory($this->installDirectory.'/eventful')->version)->toBe('1.0.0');
@@ -462,54 +503,16 @@ test('disabled packages can be installed before their dependencies and cannot be
     $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'enabled' => false]);
 });
 
-/** @param list<string> $components */
-function writePresentation(string $identifier, array $components, string $version = '1.0.0'): string
+/** @param list<string> $views */
+function writePresentation(string $identifier, array $views, string $version = '1.0.0'): string
 {
     $source = writeExtension($identifier);
-    File::put($source.'/extension.json', json_encode(['id' => $identifier, 'name' => $identifier, 'version' => $version, 'requires' => ['sdk' => '*'], 'ui' => ['entry' => 'dist/client.js', 'components' => $components]], JSON_THROW_ON_ERROR));
+    File::put($source.'/extension.json', json_encode(['id' => $identifier, 'name' => $identifier, 'version' => $version, 'requires' => ['sdk' => '*'], 'ui' => ['entry' => 'dist/client.js', 'views' => $views]], JSON_THROW_ON_ERROR));
     File::ensureDirectoryExists($source.'/dist');
     File::put($source.'/dist/client.js', 'export default {setup() {}};');
 
     return $source;
 }
-
-test('rejects enabling a competing replacement before migrations or activation events', function (): void {
-    $installer = $this->app->make(InstallsExtensions::class);
-    try {
-        $installer->install(writePresentation('card-owner', ['dashboard.serverCard']), enable: true);
-        $installer->install(writePresentation('eventful', ['dashboard.serverCard']));
-        File::ensureDirectoryExists($this->installDirectory.'/eventful/database/migrations');
-        Event::fake([ExtensionEnabling::class, ExtensionEnabled::class]);
-        Artisan::shouldReceive('call')->never();
-
-        expect(fn () => $this->app->make(SetsExtensionEnabled::class)->setEnabled('eventful', true))->toThrow(InvalidExtensionException::class, 'card-owner');
-
-        $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'enabled' => false]);
-        $this->assertDatabaseHas('extensions', ['identifier' => 'card-owner', 'enabled' => true]);
-        Event::assertNothingDispatched();
-        expect($this->app->make(ExtensionRepository::class)->frontendPayload(false)[0]['components'])->toBe(['dashboard.serverCard']);
-    } finally {
-        Extension::query()->where('identifier', 'card-owner')->delete();
-    }
-});
-
-test('rejects an enabled upgrade with conflicting replacements and preserves its package', function (): void {
-    $installer = $this->app->make(InstallsExtensions::class);
-    try {
-        $installer->install(writePresentation('card-owner', ['dashboard.serverCard']), enable: true);
-        $installer->install(writeExtension('eventful'), enable: true);
-        $source = writePresentation('eventful', ['dashboard.serverCard'], '2.0.0');
-        Event::fake([ExtensionInstalling::class, ExtensionEnabling::class]);
-
-        expect(fn () => $installer->install($source))->toThrow(InvalidExtensionException::class, 'dashboard.serverCard');
-
-        $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => true]);
-        expect((new ExtensionManifestValidator)->fromDirectory($this->installDirectory.'/eventful')->components)->toBe([]);
-        Event::assertNothingDispatched();
-    } finally {
-        Extension::query()->where('identifier', 'card-owner')->delete();
-    }
-});
 
 test('failed removal restores the package and published assets with its metadata', function (): void {
     $source = writeExtension('eventful');
@@ -534,21 +537,198 @@ test('failed removal restores the package and published assets with its metadata
     expect(glob($this->installDirectory.'/.previous-*'))->toBeEmpty();
 });
 
-test('file editor and file browser replacements reach the frontend and stay exclusive per component', function (): void {
+test('view overrides of several extensions reach the frontend together', function (): void {
     $installer = $this->app->make(InstallsExtensions::class);
     try {
         $installer->install(writePresentation('code-editor', ['server.files.editor']), enable: true);
-        $installer->install(writePresentation('tree-browser', ['server.files.manager']), enable: true);
-        $installer->install(writePresentation('eventful', ['server.files.details', 'server.files.editor']));
+        $installer->install(writePresentation('eventful', ['server.files.details', 'server.files.editor']), enable: true);
 
-        expect(fn () => $this->app->make(SetsExtensionEnabled::class)->setEnabled('eventful', true))->toThrow(InvalidExtensionException::class, 'code-editor');
-
-        $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'enabled' => false]);
-        expect(collect($this->app->make(ExtensionRepository::class)->frontendPayload(false))->pluck('components', 'id')->all())->toBe([
+        expect(collect($this->app->make(ExtensionRepository::class)->frontendPayload(true))->pluck('views', 'id')->all())->toBe([
             'code-editor' => ['server.files.editor'],
-            'tree-browser' => ['server.files.manager'],
+            'eventful' => ['server.files.details', 'server.files.editor'],
         ]);
     } finally {
-        Extension::query()->whereIn('identifier', ['code-editor', 'tree-browser'])->delete();
+        Extension::query()->where('identifier', 'code-editor')->delete();
     }
+});
+
+test('a package with an installed id replaces nothing until the replacement is confirmed', function (): void {
+    $installer = $this->app->make(InstallsExtensions::class);
+    $source = writeExtension('eventful');
+    $installer->install($source, enable: true);
+    File::put($source.'/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '2.0.0'], JSON_THROW_ON_ERROR));
+    File::ensureDirectoryExists($source.'/database/migrations');
+    Event::fake([ExtensionInstalling::class]);
+    Artisan::shouldReceive('call')->never();
+
+    try {
+        $installer->install($source);
+        $this->fail('The replacement was not refused.');
+    } catch (ExtensionAlreadyInstalledException $exception) {
+        expect([$exception->identifier, $exception->installedVersion, $exception->version, $exception->enabled])->toBe(['eventful', '1.0.0', '2.0.0', true]);
+    }
+
+    Event::assertNothingDispatched();
+    expect((new ExtensionManifestValidator)->fromDirectory($this->installDirectory.'/eventful')->version)->toBe('1.0.0');
+    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => true]);
+
+    // Reinstalling the installed copy in place, as the scaffolded workflow does, replaces nothing.
+    File::deleteDirectory($source.'/database');
+    File::put($this->installDirectory.'/eventful/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '1.0.1'], JSON_THROW_ON_ERROR));
+    expect($installer->install($this->installDirectory.'/eventful')->version)->toBe('1.0.1');
+});
+
+test('the install command replaces an installed extension only once that is confirmed', function (): void {
+    $source = writeExtension('eventful');
+    $this->artisan('p:extension:install', ['path' => $source, '--enable' => true])->assertSuccessful();
+    File::put($source.'/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '2.0.0'], JSON_THROW_ON_ERROR));
+    $question = 'Extension "eventful" is already installed. Replace v1.0.0 with v2.0.0? It stays enabled and its migrations run.';
+
+    $this->artisan('p:extension:install', ['path' => $source, '--no-interaction' => true])
+        ->expectsOutputToContain('Pass --replace to replace it.')
+        ->assertFailed();
+    $this->artisan('p:extension:install', ['path' => $source])->expectsConfirmation($question, 'no')->assertFailed();
+    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '1.0.0', 'enabled' => true]);
+
+    $this->artisan('p:extension:install', ['path' => $source])->expectsConfirmation($question, 'yes')->assertSuccessful();
+    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '2.0.0', 'enabled' => true]);
+
+    File::put($source.'/extension.json', json_encode(['id' => 'eventful', 'name' => 'Eventful', 'version' => '3.0.0'], JSON_THROW_ON_ERROR));
+    $this->artisan('p:extension:install', ['path' => $source, '--replace' => true, '--no-interaction' => true])->assertSuccessful();
+    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'version' => '3.0.0', 'enabled' => true]);
+});
+
+test('disabled installs publish no assets and failed activations remove the build they published', function (): void {
+    $installer = $this->app->make(InstallsExtensions::class);
+    $assets = $this->app->make(ExtensionAssetPublisher::class);
+    $source = writePresentation('eventful', []);
+    File::put($source.'/dist/logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+
+    $installer->install($source);
+    expect($assets->publishedPath('eventful'))->not->toBeDirectory();
+
+    $this->app->make(SetsExtensionEnabled::class)->setEnabled('eventful', true);
+    $published = $assets->currentVersion('eventful');
+    expect($assets->publishedPath('eventful').'/'.$published.'/logo.svg')->toBeFile();
+
+    writePresentation('eventful', [], '2.0.0');
+    File::put($source.'/dist/client.js', 'export default {setup() {}, version: 2};');
+    $rejectUpdate = true;
+    DB::listen(static function (QueryExecuted $query) use (&$rejectUpdate): void {
+        if ($rejectUpdate && str_starts_with(mb_strtolower($query->sql), 'update `extensions`')) {
+            $rejectUpdate = false;
+            throw new RuntimeException('metadata update failed');
+        }
+    });
+
+    expect(fn () => $installer->install($source, replace: true))->toThrow(RuntimeException::class, 'metadata update failed');
+    expect($assets->currentVersion('eventful'))->toBe($published);
+    expect(array_map(basename(...), glob($assets->publishedPath('eventful').'/*', GLOB_ONLYDIR)))->toBe([$published]);
+});
+
+test('directory installs refuse symbolic links and leave node_modules behind', function (): void {
+    $installer = $this->app->make(InstallsExtensions::class);
+    $source = writePresentation('eventful', []);
+    File::put(dirname($this->sourceDirectory).'/panel.env', 'APP_KEY=secret');
+    File::ensureDirectoryExists($source.'/resources/lang');
+    symlink(dirname($this->sourceDirectory).'/panel.env', $source.'/resources/lang/en.json');
+
+    expect(fn () => $installer->install($source))->toThrow(InvalidExtensionException::class, 'resources/lang/en.json is a symbolic link');
+    expect($this->installDirectory.'/eventful')->not->toBeDirectory();
+    expect(glob($this->installDirectory.'/.staging-*'))->toBeEmpty();
+    $this->assertDatabaseMissing('extensions', ['identifier' => 'eventful']);
+
+    unlink($source.'/resources/lang/en.json');
+    File::ensureDirectoryExists($source.'/node_modules/tool');
+    File::put($source.'/node_modules/tool/cli.js', '');
+    File::ensureDirectoryExists($source.'/node_modules/.bin');
+    symlink('../tool/cli.js', $source.'/node_modules/.bin/tool');
+
+    $installer->install($source);
+    expect($this->installDirectory.'/eventful/dist/client.js')->toBeFile();
+    expect($this->installDirectory.'/eventful/node_modules')->not->toBeDirectory();
+});
+
+test('removing an extension linked to its source removes only the link', function (): void {
+    $source = writeExtension('eventful');
+    File::put($source.'/src.php', '<?php');
+    symlink($source, $this->installDirectory.'/eventful');
+    $this->app->make(InstallsExtensions::class)->install($source);
+
+    $this->app->make(RemovesExtensions::class)->remove('eventful');
+
+    expect(is_link($this->installDirectory.'/eventful') || file_exists($this->installDirectory.'/eventful'))->toBeFalse();
+    expect($source.'/extension.json')->toBeFile();
+    expect($source.'/src.php')->toBeFile();
+    expect(glob($this->installDirectory.'/.previous-*'))->toBeEmpty();
+    $this->assertDatabaseMissing('extensions', ['identifier' => 'eventful']);
+});
+
+test('archives are limited by the bytes they really expand to, not the sizes they declare', function (): void {
+    $this->app->useStoragePath(dirname($this->sourceDirectory).'/storage');
+    $sparse = $this->sourceDirectory.'/zeros.bin';
+    $handle = fopen($sparse, 'wb');
+    ftruncate($handle, ExtensionPackageLocator::MAX_ARCHIVE_UNCOMPRESSED_BYTES + 1);
+    fclose($handle);
+
+    $path = $this->sourceDirectory.'/bomb.zip';
+    $zip = new ZipArchive;
+    $zip->open($path, ZipArchive::CREATE);
+    $zip->addFromString('extension.json', '{}');
+    $zip->addFile($sparse, 'zeros.bin');
+    $zip->close();
+    unlink($sparse);
+
+    // Claim the entry inflates to a single byte in both its local and central directory headers.
+    $bytes = File::get($path);
+    $local = mb_strpos($bytes, 'zeros.bin', 0, '8bit') - 30;
+    $central = mb_strrpos($bytes, 'zeros.bin', 0, '8bit') - 46;
+    expect(mb_substr($bytes, $local, 4, '8bit'))->toBe("PK\x03\x04")
+        ->and(mb_substr($bytes, $central, 4, '8bit'))->toBe("PK\x01\x02");
+    File::put($path, substr_replace(substr_replace($bytes, pack('V', 1), $local + 22, 4), pack('V', 1), $central + 24, 4));
+    $zip = new ZipArchive;
+    $zip->open($path);
+    expect($zip->statIndex(1)['size'])->toBe(1);
+    $zip->close();
+
+    expect(fn () => $this->app->make(ExtensionPackageLocator::class)->locate($path))->toThrow(InvalidExtensionException::class, 'expands to more than the allowed');
+
+    expect(glob(storage_path('app/extensions-tmp/*')))->toBeEmpty();
+});
+
+test('archive entries that would land outside the package are refused', function (string $name): void {
+    $this->app->useStoragePath(dirname($this->sourceDirectory).'/storage');
+    $path = $this->sourceDirectory.'/escape.zip';
+    $zip = new ZipArchive;
+    $zip->open($path, ZipArchive::CREATE);
+    $zip->addFromString('extension.json', '{}');
+    $zip->addFromString($name, 'escaped');
+    $zip->close();
+
+    expect(fn () => $this->app->make(ExtensionPackageLocator::class)->locate($path))->toThrow(InvalidExtensionException::class, 'contains an entry outside the package');
+
+    expect(glob(storage_path('app/extensions-tmp/*')))->toBeEmpty();
+    expect(storage_path('app/escaped.txt'))->not->toBeFile();
+})->with(['../../escaped.txt', '/tmp/escaped.txt', 'dist/..\\..\\..\\escaped.txt']);
+
+test('changes are refused up front when an extension directory is not writable', function (): void {
+    if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+        $this->markTestSkipped('Directory permissions do not apply to root.');
+    }
+
+    $source = writeExtension('eventful');
+    $this->app->make(InstallsExtensions::class)->install($source, enable: true);
+    chmod($this->installDirectory, 0555);
+
+    try {
+        $message = 'The panel cannot write to '.$this->installDirectory.'.';
+        expect(fn () => $this->app->make(InstallsExtensions::class)->install($source, replace: true))->toThrow(InvalidExtensionException::class, $message)
+            ->and(fn () => $this->app->make(SetsExtensionEnabled::class)->setEnabled('eventful', false))->toThrow(InvalidExtensionException::class, $message)
+            ->and(fn () => $this->app->make(RemovesExtensions::class)->remove('eventful'))->toThrow(InvalidExtensionException::class, $message);
+    } finally {
+        chmod($this->installDirectory, 0755);
+    }
+
+    $this->assertDatabaseHas('extensions', ['identifier' => 'eventful', 'enabled' => true]);
+    expect(glob($this->installDirectory.'/.staging-*'))->toBeEmpty();
 });

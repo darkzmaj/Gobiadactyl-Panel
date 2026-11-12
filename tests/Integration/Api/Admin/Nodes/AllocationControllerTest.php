@@ -130,9 +130,23 @@ test('bulk delete allocations', function (): void {
 
     $this->assertDatabaseHas('allocations', ['id' => $keep->id]);
 });
+test('bulk delete removes nothing when one allocation is assigned', function (): void {
+    $free = Allocation::factory()->times(2)->create(['node_id' => $this->node->id]);
+    $assigned = $this->createServerModel(['node_id' => $this->node->id])->allocation;
+
+    $this->deleteJson(route('api.admin.nodes.allocations.bulk-delete', ['node' => $this->node->id]), ['ids' => [$free[0]->id, $assigned->id, $free[1]->id]])
+        ->assertBadRequest()
+        ->assertJsonPath('errors.0.code', 'ServerUsingAllocationException');
+
+    foreach ([...$free, $assigned] as $allocation) {
+        $this->assertDatabaseHas('allocations', ['id' => $allocation->id]);
+    }
+});
 test('ip block delete allocations', function (): void {
     $block = Allocation::factory()->times(2)->create(['node_id' => $this->node->id, 'ip' => '10.0.0.5']);
     $other = Allocation::factory()->create(['node_id' => $this->node->id, 'ip' => '10.0.0.6']);
+    $assigned = $this->createServerModel(['node_id' => $this->node->id])->allocation;
+    $assigned->forceFill(['ip' => '10.0.0.5'])->save();
     $response = $this->deleteJson(route('api.admin.nodes.allocations.block', ['node' => $this->node->id]), ['ip' => '10.0.0.5']);
     $response->assertStatus(Response::HTTP_NO_CONTENT);
     foreach ($block as $allocation) {
@@ -140,6 +154,7 @@ test('ip block delete allocations', function (): void {
     }
 
     $this->assertDatabaseHas('allocations', ['id' => $other->id]);
+    $this->assertDatabaseHas('allocations', ['id' => $assigned->id]);
 });
 test('bulk delete requires ids', function (): void {
     $response = $this->deleteJson(route('api.admin.nodes.allocations.bulk-delete', ['node' => $this->node->id]), []);

@@ -9,6 +9,8 @@ type BaseProps = {
 };
 export type TextFieldProps = BaseProps & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'name' | 'value' | 'onChange' | 'defaultValue'>;
 export declare function TextField({ id, label, description, light, onBlur, 'aria-describedby': ariaDescribedBy, 'aria-invalid': ariaInvalid, ...props }: TextFieldProps): React.JSX.Element;
+export type PasswordFieldProps = BaseProps & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'name' | 'value' | 'onChange' | 'defaultValue' | 'type'>;
+export declare function PasswordField({ id, label, description, light, onBlur, className, 'aria-describedby': ariaDescribedBy, 'aria-invalid': ariaInvalid, ...props }: PasswordFieldProps): React.JSX.Element;
 export type TextAreaFieldProps = BaseProps & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'name' | 'value' | 'onChange' | 'defaultValue'>;
 export declare function TextAreaField({ id, label, description, light, onBlur, 'aria-describedby': ariaDescribedBy, 'aria-invalid': ariaInvalid, ...props }: TextAreaFieldProps): React.JSX.Element;
 export type NumberFieldProps = BaseProps & {
@@ -38,8 +40,9 @@ export type MultiSelectFieldProps = BaseProps & {
     disabled?: boolean;
     placeholder?: string;
     searchPlaceholder?: string;
+    onCreate?: (text: string) => void;
 };
-export declare function MultiSelectField({ id, label, description, light, options, disabled, placeholder, searchPlaceholder, }: MultiSelectFieldProps): React.JSX.Element;
+export declare function MultiSelectField({ id, label, description, light, options, disabled, placeholder, searchPlaceholder, onCreate, }: MultiSelectFieldProps): React.JSX.Element;
 export type SwitchFieldProps = {
     label?: string;
     description?: string;

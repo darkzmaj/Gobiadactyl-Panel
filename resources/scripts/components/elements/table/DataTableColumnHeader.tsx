@@ -8,6 +8,8 @@ interface Props<TData extends RowData, TValue> {
     className?: string;
 }
 
+const sortIcons = { asc: ArrowUp, desc: ArrowDown };
+
 export default function DataTableColumnHeader<TData extends RowData, TValue>({
     column,
     title,
@@ -22,22 +24,22 @@ export default function DataTableColumnHeader<TData extends RowData, TValue>({
     const label = nextDirection
         ? `Sort ${title} ${nextDirection === 'asc' ? 'ascending' : 'descending'}`
         : `Clear ${title} sorting`;
-    const SortIcon = direction === 'asc' ? ArrowUp : direction === 'desc' ? ArrowDown : ArrowUpDown;
+    const SortIcon = direction ? sortIcons[direction] : ArrowUpDown;
 
     return (
         <button
-            type={'button'}
+            type='button'
             aria-label={label}
             onClick={column.getToggleSortingHandler()}
             className={cn(
-                'group -ml-1 inline-flex h-8 items-center gap-1 rounded-md px-1 text-left [text-transform:inherit] transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+                'group -ml-1 inline-flex h-8 items-center gap-1 rounded-sm px-1 text-left [text-transform:inherit] transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
                 direction && 'text-foreground',
                 className
             )}
         >
             <span>{title}</span>
             <SortIcon
-                aria-hidden={'true'}
+                aria-hidden='true'
                 className={cn(
                     'h-3 w-3 shrink-0 transition-opacity',
                     direction ? 'opacity-100' : 'opacity-0 group-hover:opacity-70 group-focus-visible:opacity-70'

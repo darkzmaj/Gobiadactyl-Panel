@@ -5,32 +5,66 @@ declare(strict_types=1);
 namespace Pterodactyl\Actions\Servers;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use LogicException;
 use Pterodactyl\Contracts\Servers\ChangesServerEgg;
+use Pterodactyl\Contracts\Servers\UpdatesServerDockerImage;
 use Pterodactyl\Contracts\Servers\UpdatesServerStartup;
+use Pterodactyl\Contracts\Servers\UpdatesServerVariable;
 use Pterodactyl\Models\Egg;
 use Pterodactyl\Models\Server;
-use Pterodactyl\Models\ServerVariable;
 use Pterodactyl\Models\User;
 use Pterodactyl\Services\Servers\VariableValidatorService;
-use Throwable;
+use UnexpectedValueException;
 
 final readonly class UpdateServerStartup implements UpdatesServerStartup
 {
     public function __construct(
         private VariableValidatorService $validatorService,
         private ChangesServerEgg $eggs,
+        private UpdatesServerDockerImage $dockerImage,
+        private UpdatesServerVariable $variables,
     ) {}
 
     /**
-     * @param  ServerStartupModificationData  $data
+     * The environment maps each egg variable to its value, which the egg's own variable rules
+     * check. Below the admin level the environment is the only field.
      *
-     * @throws Throwable
+     * @return NormalizedValidationRules
      */
-    public function update(Server $server, array $data, int $userLevel = User::USER_LEVEL_USER): Server
+    public static function rules(int $userLevel = User::USER_LEVEL_USER): array
     {
-        return DB::transaction(function () use ($server, $data, $userLevel): Server {
-            $eggId = $data['egg_id'] ?? null;
+        if ($userLevel !== User::USER_LEVEL_ADMIN) {
+            return ['environment' => ['present', 'array']];
+        }
+
+        $rules = CreateServer::rules();
+
+        return [
+            'startup' => $rules['startup'],
+            'environment' => ['present', 'array'],
+            'egg_id' => ['required', 'exists:eggs,id'],
+            'docker_image' => $rules['image'],
+            'skip_scripts' => ['present', 'boolean'],
+        ];
+    }
+
+    public function update(Server $server, array $input, int $userLevel = User::USER_LEVEL_USER): Server
+    {
+        // Only the fields given are validated, and fields above the user level are ignored.
+        $rules = array_map(fn (array $rules): array => ['sometimes', ...$rules], self::rules($userLevel));
+        $validated = Validator::make($input, $rules)->safe();
+
+        // Laravel's typed accessors would turn every value into one type, but the egg's
+        // variable rules have to see each value as it was sent.
+        $environment = [];
+        foreach ($validated->array('environment') as $key => $value) {
+            throw_unless(is_string($key) && ($value === null || is_scalar($value)), UnexpectedValueException::class, 'Server environment variables must map names to scalar values.');
+            $environment[$key] = $value;
+        }
+
+        return DB::transaction(function () use ($server, $validated, $environment, $userLevel): Server {
+            $eggId = $validated->has('egg_id') ? $validated->integer('egg_id') : null;
             if ($userLevel === User::USER_LEVEL_ADMIN && $eggId !== null && $server->egg_id !== $eggId) {
                 // Only administrators may move a server to another egg. Values the
                 // new egg still accepts are kept, and anything submitted below
@@ -38,31 +72,37 @@ final readonly class UpdateServerStartup implements UpdatesServerStartup
                 $server = $this->eggs->change($server, Egg::query()->findOrFail($eggId), keepVariables: true);
             }
 
-            if (! empty($data['environment'])) {
+            if ($environment !== []) {
                 $egg = $server->relationLoaded('egg') && $server->egg instanceof Egg
                     ? $server->egg
                     : Egg::query()->findOrFail($server->egg_id);
 
-                $results = $this->validatorService->setUserLevel($userLevel)->handle($egg, $data['environment']);
+                $results = $this->validatorService->validate($egg, $environment, $userLevel);
                 foreach ($results as $result) {
-                    ServerVariable::query()->updateOrCreate(
-                        ['server_id' => $server->id, 'variable_id' => $result->id],
-                        ['variable_value' => $result->value ?? '']
-                    );
+                    $this->variables->update($server, $result->id, $result->value === null ? '' : (string) $result->value);
                 }
             }
 
             if ($userLevel === User::USER_LEVEL_ADMIN) {
                 $server->fill([
-                    'startup' => $data['startup'] ?? $server->startup,
-                    'skip_scripts' => $data['skip_scripts'] ?? isset($data['skip_scripts']),
-                    'image' => $data['docker_image'] ?? $server->image,
+                    'startup' => $validated['startup'] ?? $server->startup,
+                    'skip_scripts' => $validated['skip_scripts'] ?? false,
                 ])->save();
+
+                // Image changes go through their own contract so extensions wrapping
+                // it see this path too. Skip it when the image is unchanged.
+                $image = $validated->has('docker_image') ? $validated->string('docker_image')->toString() : null;
+                if ($image !== null && $image !== $server->image) {
+                    $server = $this->dockerImage->update($server, $image);
+                }
             }
 
-            // Calling ->refresh() rather than ->fresh() here causes the
-            // variables as triplicates for some reason. Not entirely sure why,
-            // but this operation test covers the behavior and keeps it stable.
+            // Use fresh() rather than refresh(). refresh() reloads every loaded
+            // relation through an eager load, which rebuilds Server::variables()
+            // on a blank model. That relation captures $this->id in its join, so
+            // the rebuilt join loses the server filter and the reloaded variables
+            // come back wrong. fresh() returns a new instance and leaves the
+            // relation unloaded.
             $fresh = $server->fresh();
             throw_if($fresh === null, LogicException::class, 'The modified server no longer exists.');
 

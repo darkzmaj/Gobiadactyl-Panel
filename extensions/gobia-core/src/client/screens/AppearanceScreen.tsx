@@ -1,7 +1,8 @@
 import { ContentBox, PageContentBlock, toast } from '@pterodactyl/sdk';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
-import { applyScheme, SCHEMES, storeScheme, type Scheme } from '../appearance';
+import { useTheme } from '@pterodactyl/sdk/theme';
+import { SCHEMES, type Scheme } from '../appearance';
 import { fetchProfile, profileQueryKey, saveAppearance } from '../api';
 
 const OPTIONS = {
@@ -12,14 +13,14 @@ const OPTIONS = {
 
 export default function AppearanceScreen() {
     const queryClient = useQueryClient();
+    const { setScheme } = useTheme();
     const { data } = useQuery({ queryKey: profileQueryKey, queryFn: fetchProfile, staleTime: Infinity });
     const selected = data?.theme ?? 'system';
     const mutation = useMutation({
         mutationFn: saveAppearance,
         onSuccess: (profile) => {
             queryClient.setQueryData(profileQueryKey, profile);
-            storeScheme(profile.theme);
-            applyScheme(profile.theme);
+            setScheme(profile.theme);
         },
         onError: () => toast.error('Could not save your appearance.'),
     });
@@ -32,7 +33,8 @@ export default function AppearanceScreen() {
                     <p>Choose how the Panel looks. Your choice follows you to every device.</p>
                 </div>
             </div>
-            <ContentBox title={'Theme'} description={'System follows your operating system setting.'}>
+            <ContentBox title={'Theme'}>
+                <p className={'gb-card-sub'}>System follows your operating system setting.</p>
                 <div
                     role={'radiogroup'}
                     aria-label={'Theme'}

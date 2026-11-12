@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace Pterodactyl\Http\Requests\Api\Admin\Tags;
 
+use Illuminate\Support\Arr;
+use Pterodactyl\Actions\Tags\CreateTag;
 use Pterodactyl\Enum\Permissions;
 use Pterodactyl\Http\Requests\Api\Admin\AdminApiRequest;
-use Pterodactyl\Rules\TagSlug;
-use Pterodactyl\Support\ValidationRuleSubset;
-use Pterodactyl\Validation\TagRules;
 
 class StoreTagRequest extends AdminApiRequest
 {
@@ -22,22 +21,17 @@ class StoreTagRequest extends AdminApiRequest
      */
     public function rules(): array
     {
-        return $this->withSlugRule(TagRules::rules());
+        return $this->writable(CreateTag::rules());
     }
 
     /**
-     * Narrow the model rules to the writable fields and forbid numeric slugs, so a
-     * leftover legacy nest id can be told apart from a real tag and a slug can never
-     * shadow a tag id (see TagSlug).
+     * Narrow a tag's rules to the fields the API writes; it never sets the legacy nest id.
      *
      * @param  NormalizedValidationRules  $rules
      * @return NormalizedValidationRules
      */
-    protected function withSlugRule(array $rules): array
+    protected function writable(array $rules): array
     {
-        $rules = ValidationRuleSubset::select($rules, ['name', 'slug', 'color']);
-        $rules['slug'] = array_merge($rules['slug'], [new TagSlug]);
-
-        return $rules;
+        return Arr::only($rules, ['name', 'slug', 'color']);
     }
 }

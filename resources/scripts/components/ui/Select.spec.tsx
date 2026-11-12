@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Select from './Select';
 
@@ -26,6 +27,7 @@ describe('Select', () => {
     it('drops the remembered label once the value changes', () => {
         const onChange = vi.fn();
         const { rerender } = render(<Select value={1} onChange={onChange} options={[alpha]} />);
+
         rerender(<Select value={2} onChange={onChange} options={[gamma]} />);
 
         expect(screen.getByRole('combobox')).toHaveValue('');
@@ -42,9 +44,26 @@ describe('Select', () => {
         expect(screen.getByText('2 selected')).toBeInTheDocument();
     });
 
+    it('offers typed text that matches no option to a creatable multi-select', async () => {
+        const user = userEvent.setup();
+        const props = { multiple: true as const, value: [], onChange: vi.fn(), onCreate: vi.fn() };
+
+        render(<Select {...props} options={[alpha, beta]} />);
+        await user.type(screen.getByRole('combobox'), 'alpha');
+
+        expect(screen.queryByRole('option', { name: 'Create "alpha"' })).not.toBeInTheDocument();
+
+        await user.clear(screen.getByRole('combobox'));
+        await user.type(screen.getByRole('combobox'), ' Delta ');
+        await user.click(await screen.findByRole('option', { name: 'Create "Delta"' }));
+
+        expect(props.onCreate).toHaveBeenCalledWith('Delta');
+        expect(props.onChange).not.toHaveBeenCalled();
+    });
+
     it('forwards the description and invalid state to the input', () => {
         render(
-            <Select value={null} onChange={vi.fn()} options={[alpha]} aria-describedby={'select-help'} aria-invalid />
+            <Select value={null} onChange={vi.fn()} options={[alpha]} aria-describedby='select-help' aria-invalid />
         );
         const input = screen.getByRole('combobox');
 

@@ -22,7 +22,7 @@ test('get users', function (): void {
     $response->assertStatus(Response::HTTP_OK);
     $response->assertJsonCount(2, 'data');
     $response->assertJsonStructure(['object', 'data' => [['object', 'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'first_name', 'last_name', 'language', 'root_admin', '2fa', 'created_at', 'updated_at']], ['object', 'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'first_name', 'last_name', 'language', 'root_admin', '2fa', 'created_at', 'updated_at']]], 'meta' => ['pagination' => ['total', 'count', 'per_page', 'current_page', 'total_pages']]]);
-    $response->assertJson(['object' => 'list', 'data' => [[], []], 'meta' => ['pagination' => ['total' => 2, 'count' => 2, 'per_page' => 60, 'current_page' => 1, 'total_pages' => 1]]])->assertJsonFragment(['object' => 'user', 'attributes' => ['id' => $this->getApiUser()->id, 'external_id' => $this->getApiUser()->external_id, 'uuid' => $this->getApiUser()->uuid, 'username' => $this->getApiUser()->username, 'email' => $this->getApiUser()->email, 'first_name' => $this->getApiUser()->name_first, 'last_name' => $this->getApiUser()->name_last, 'language' => $this->getApiUser()->language, 'root_admin' => $this->getApiUser()->root_admin, '2fa' => (bool) $this->getApiUser()->totp_enabled, 'relationships' => [], 'created_at' => $this->formatTimestamp($this->getApiUser()->created_at), 'updated_at' => $this->formatTimestamp($this->getApiUser()->updated_at)]])->assertJsonFragment(['object' => 'user', 'attributes' => ['id' => $user->id, 'external_id' => $user->external_id, 'uuid' => $user->uuid, 'username' => $user->username, 'email' => $user->email, 'first_name' => $user->name_first, 'last_name' => $user->name_last, 'language' => $user->language, 'root_admin' => (bool) $user->root_admin, '2fa' => (bool) $user->totp_enabled, 'relationships' => [], 'created_at' => $this->formatTimestamp($user->created_at), 'updated_at' => $this->formatTimestamp($user->updated_at)]]);
+    $response->assertJson(['object' => 'list', 'data' => [[], []], 'meta' => ['pagination' => ['total' => 2, 'count' => 2, 'per_page' => 60, 'current_page' => 1, 'total_pages' => 1]]])->assertJsonFragment(['object' => 'user', 'attributes' => ['id' => $this->getApiUser()->id, 'external_id' => $this->getApiUser()->external_id, 'uuid' => $this->getApiUser()->uuid, 'username' => $this->getApiUser()->username, 'email' => $this->getApiUser()->email, 'first_name' => $this->getApiUser()->name_first, 'last_name' => $this->getApiUser()->name_last, 'language' => $this->getApiUser()->language, 'root_admin' => $this->getApiUser()->root_admin, '2fa' => (bool) $this->getApiUser()->totp_enabled, 'avatar' => null, 'relationships' => [], 'created_at' => $this->formatTimestamp($this->getApiUser()->created_at), 'updated_at' => $this->formatTimestamp($this->getApiUser()->updated_at)]])->assertJsonFragment(['object' => 'user', 'attributes' => ['id' => $user->id, 'external_id' => $user->external_id, 'uuid' => $user->uuid, 'username' => $user->username, 'email' => $user->email, 'first_name' => $user->name_first, 'last_name' => $user->name_last, 'language' => $user->language, 'root_admin' => (bool) $user->root_admin, '2fa' => (bool) $user->totp_enabled, 'avatar' => null, 'relationships' => [], 'created_at' => $this->formatTimestamp($user->created_at), 'updated_at' => $this->formatTimestamp($user->updated_at)]]);
 });
 test('get single user', function (): void {
     $user = User::factory()->create();
@@ -97,6 +97,10 @@ test('a user can be created with an eight character password', function (): void
     $this->postJson('/api/application/users', ['username' => 'okuser', 'email' => 'ok@example.com', 'first_name' => 'Ok', 'last_name' => 'Password', 'password' => 'abcdefgh'])->assertCreated();
     expect(Hash::check('abcdefgh', User::query()->where('username', 'okuser')->firstOrFail()->password))->toBeTrue();
 });
+test('root admin status accepts integer and string flags', function (int|string $flag, bool $expected): void {
+    $this->postJson('/api/application/users', ['username' => 'flaguser', 'email' => 'flag@example.com', 'first_name' => 'Flag', 'last_name' => 'User', 'root_admin' => $flag])->assertCreated();
+    expect(User::query()->where('username', 'flaguser')->firstOrFail()->root_admin)->toBe($expected);
+})->with([[1, true], ['0', false]]);
 test('a user email must not start with a dash', function (string $method, string $suffix): void {
     $user = User::factory()->create();
     $this->{$method}('/api/application/users'.str_replace('{user}', (string) $user->id, $suffix), ['username' => 'dashuser', 'email' => '-x@example.com', 'first_name' => 'Dash', 'last_name' => 'User'])
@@ -122,3 +126,20 @@ test('api key without write permissions', function (string $method, string $url)
     $response = $this->{$method}($url);
     $this->assertAccessDeniedJson($response);
 })->with('userWriteEndpointsDataProvider');
+test('a key without full write access cannot create or manage administrators', function (): void {
+    $this->createNewDefaultApiKey($this->getApiUser(), ['r_users' => AdminAcl::READ | AdminAcl::WRITE, 'r_nodes' => AdminAcl::NONE]);
+    $admin = User::factory()->create(['root_admin' => true]);
+
+    $this->assertAccessDeniedJson($this->postJson('/api/application/users', ['username' => 'escalated', 'email' => 'escalated@example.com', 'first_name' => 'A', 'last_name' => 'B', 'root_admin' => true]));
+    $this->assertAccessDeniedJson($this->patchJson('/api/application/users/'.$admin->id, ['username' => $admin->username, 'email' => $admin->email, 'first_name' => 'A', 'last_name' => 'B', 'password' => 'Escalated_Password1']));
+    $this->assertAccessDeniedJson($this->deleteJson('/api/application/users/'.$admin->id));
+
+    $this->postJson('/api/application/users', ['username' => 'regular', 'email' => 'regular@example.com', 'first_name' => 'A', 'last_name' => 'B'])->assertCreated();
+    expect(User::query()->where('email', 'escalated@example.com')->exists())->toBeFalse()
+        ->and(Hash::check('Escalated_Password1', $admin->fresh()->password))->toBeFalse();
+});
+test('a key with full write access can create administrators', function (): void {
+    $this->postJson('/api/application/users', ['username' => 'newadmin', 'email' => 'newadmin@example.com', 'first_name' => 'A', 'last_name' => 'B', 'root_admin' => true])
+        ->assertCreated()
+        ->assertJsonPath('attributes.root_admin', true);
+});

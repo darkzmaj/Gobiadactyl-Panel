@@ -7,7 +7,7 @@ namespace Pterodactyl\Http\Requests\Api\Admin\Nodes;
 use Closure;
 use Illuminate\Validation\Validator;
 use Pterodactyl\Enum\Permissions;
-use Pterodactyl\Validation\NodeRules;
+use Pterodactyl\Models\Node;
 
 class UpdateNodeRequest extends StoreNodeRequest
 {
@@ -19,13 +19,12 @@ class UpdateNodeRequest extends StoreNodeRequest
     /**
      * Validation rules for updating a node.
      *
-     * @param  NormalizedValidationRules|null  $rules
      * @return ValidationRules
      */
-    public function rules(?array $rules = null): array
+    public function rules(): array
     {
         return [
-            ...parent::rules(NodeRules::rules()),
+            ...parent::rules(),
             'reset_secret' => ['sometimes', 'boolean'],
         ];
     }
@@ -38,5 +37,13 @@ class UpdateNodeRequest extends StoreNodeRequest
     public function after(): array
     {
         return [];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function extensionFieldsModel(): Node
+    {
+        return $this->parameter('node', Node::class);
     }
 }

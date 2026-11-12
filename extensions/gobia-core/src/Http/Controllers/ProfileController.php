@@ -14,10 +14,10 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Knuckles\Scribe\Attributes\Endpoint;
 use Knuckles\Scribe\Attributes\Group;
+use Pterodactyl\Actions\Users\CreateUser;
 use Pterodactyl\Exceptions\Http\Base\InvalidPasswordProvidedException;
 use Pterodactyl\Facades\Activity;
 use Pterodactyl\Models\User;
-use Pterodactyl\Validation\UserRules;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 #[Group('Gobia profile')]
@@ -70,7 +70,7 @@ class ProfileController
     {
         $user = $request->user();
         $data = $request->validate([
-            'username' => UserRules::rules($user)['username'],
+            'username' => CreateUser::rules($user)['username'],
             'password' => ['required', 'string'],
         ]);
         // This endpoint confirms a password, so without its own limit an API key could be used to guess it.

@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // Run with: npm run gobia:test   (node scripts/gobia/run.mjs test)
 export default defineConfig({
     test: {
-        projects: ['extensions/gobia-*/vitest.config.ts'],
+        // The theme was scaffolded by p:extension:make, which writes vitest.config.mjs.
+        projects: ['extensions/gobia-*/vitest.config.ts', 'extensions/gobia-*/vitest.config.mjs'],
     },
 });

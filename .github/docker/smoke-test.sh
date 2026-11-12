@@ -92,7 +92,7 @@ docker exec "$app" /bin/ash -ec '
   test ! -d vendor/phpstan
   test ! -d vendor/laravel/boost
   test -s public/assets/manifest.json
-  test -s public/assets/svgs/pterodactyl.svg
+  test -s public/assets/svgs/server_error.svg
   curl -fsS -c /tmp/smoke-cookies http://127.0.0.1/auth/login >/dev/null
 '
 test "$(docker exec "$redis" redis-cli -n 1 dbsize)" -gt 0
@@ -107,7 +107,8 @@ if (Illuminate\Support\Facades\Cache::get('docker-smoke-cache') !== 'ok') {
 }
 PHP
 
-docker exec "$app" composer docs:openapi:verify > "$workdir/docs.log" 2>&1
+# The contract test needs dev dependencies, so it runs with the test suite; this proves the spec builds.
+docker exec "$app" composer docs:openapi > "$workdir/docs.log" 2>&1
 tail -n 2 "$workdir/docs.log"
 
 # Exercise the installed scheduler as its configured Unix user.
@@ -156,7 +157,7 @@ test "$(docker exec "$redis" redis-cli get smoke-preserved)" = yes
 docker run -d --name "$dynamic" --network "$prefix" "${environment[@]}" \
   -e APP_ENVIRONMENT_ONLY=false -e PTERODACTYL_EXTENSIONS_ENABLED=true \
   -e QUEUE_WORKER_ENABLED=false -e SCHEDULER_ENABLED=false \
-  -e PHP_FPM_MAX_CHILDREN=3 -e PHP_OPCACHE_MEMORY_CONSUMPTION=192 \
+  -e PHP_FPM_MAX_CHILDREN=3 -e PHP_OPCACHE_MEMORY_CONSUMPTION=192 -e PHP_OPCACHE_REVALIDATE_FREQ=5 \
   "$image" >/dev/null
 wait_for healthy "$dynamic"
 docker exec "$dynamic" /bin/ash -ec '
@@ -165,6 +166,9 @@ docker exec "$dynamic" /bin/ash -ec '
   test ! -f bootstrap/cache/events.php
   php-fpm -tt 2>&1 | grep -q "pm.max_children = 3"
   php -r '\''exit(ini_get("opcache.memory_consumption") === "192" ? 0 : 1);'\''
+  php -r '\''exit(ini_get("opcache.revalidate_freq") === "5" ? 0 : 1);'\''
+  php -r '\''exit(ini_get("session.upload_progress.enabled") === "0" ? 0 : 1);'\''
+  php -r '\''exit(ini_get("upload_max_filesize") === "100M" && ini_get("post_max_size") === "100M" ? 0 : 1);'\''
 '
 for name in 'First live name' 'Second live name'; do
   docker exec -i -e SMOKE_NAME="$name" "$dynamic" php <<'PHP'
@@ -207,6 +211,7 @@ PHP
     version=$(docker exec "$dynamic" cat /app/public/assets/extensions/cache-probe/_current)
     [[ "$version" =~ ^[a-f0-9]{64}$ ]]
     docker exec "$dynamic" curl -fsS "http://127.0.0.1/assets/extensions/cache-probe/$version/client.js" | grep -qx "export const smoke = true;"
+    docker exec "$dynamic" curl -fsSI "http://127.0.0.1/assets/extensions/cache-probe/$version/client.js" | grep -qi '^x-content-type-options: nosniff'
   else
     test "$(docker exec "$dynamic" curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/api/cache-extension-probe)" = 404
   fi
@@ -218,7 +223,11 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=panel.example \
   -addext subjectAltName=DNS:panel.example \
   -keyout "$workdir/certs/live/panel.example/privkey.pem" \
   -out "$workdir/certs/live/panel.example/fullchain.pem" > "$workdir/openssl.log" 2>&1
-sed 's/<domain>/panel.example/g' "$script_dir/default_ssl.conf" > "$workdir/panel.conf"
+# Stand in for a config persisted by an older image, which set upload limits per request.
+sed -e 's/<domain>/panel.example/g' \
+  -e 's|^\( *\)include fastcgi_params;|&\n\1fastcgi_param PHP_VALUE "upload_max_filesize = 100M \\n post_max_size=100M";|' \
+  "$script_dir/default_ssl.conf" > "$workdir/panel.conf"
+grep -q 'fastcgi_param PHP_VALUE' "$workdir/panel.conf"
 docker create --name "$tls" --network "$prefix" "${environment[@]}" \
   -e APP_URL=https://panel.example -e LE_EMAIL=smoke@example.test \
   -e QUEUE_WORKER_ENABLED=false -e SCHEDULER_ENABLED=false \
@@ -227,6 +236,10 @@ docker cp "$workdir/certs/." "$tls:/etc/letsencrypt/"
 docker cp "$workdir/panel.conf" "$tls:/etc/nginx/http.d/panel.conf"
 docker start "$tls" >/dev/null
 wait_for healthy "$tls"
+if docker exec "$tls" grep -q 'fastcgi_param PHP_VALUE' /etc/nginx/http.d/panel.conf; then
+  echo 'The entrypoint left a per-request PHP_VALUE in the persisted nginx config.' >&2
+  exit 1
+fi
 for version in 1.2 1.3; do
   docker exec "$tls" curl -fsS --tlsv"$version" --tls-max "$version" \
     --cacert /etc/letsencrypt/live/panel.example/fullchain.pem \

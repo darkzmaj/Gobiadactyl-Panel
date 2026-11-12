@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Pterodactyl\Http\Requests\Api\Admin\DatabaseHosts;
 
+use Illuminate\Database\Eloquent\Model;
+use Pterodactyl\Actions\Databases\CreateDatabaseHost;
 use Pterodactyl\Enum\Permissions;
 use Pterodactyl\Http\Requests\Api\Admin\AdminApiRequest;
-use Pterodactyl\Validation\DatabaseHostRules;
+use Pterodactyl\Http\Requests\Concerns\ValidatesExtensionFields;
+use Pterodactyl\Models\DatabaseHost;
 
 class StoreDatabaseHostRequest extends AdminApiRequest
 {
+    use ValidatesExtensionFields;
+
     public function permissions(): array
     {
         return [Permissions::AdminDatabaseHostsCreate];
@@ -22,27 +27,14 @@ class StoreDatabaseHostRequest extends AdminApiRequest
      */
     public function rules(): array
     {
-        return DatabaseHostRules::rules();
+        return CreateDatabaseHost::rules();
     }
 
-    /** @return DatabaseHostUpdateData */
-    public function payload(): array
+    /**
+     * {@inheritdoc}
+     */
+    protected function extensionFieldsModel(): Model|string
     {
-        return [
-            'name' => $this->string('name')->toString(),
-            'host' => $this->string('host')->toString(),
-            'port' => $this->integer('port'),
-            'username' => $this->string('username')->toString(),
-            'password' => $this->filled('password') ? $this->string('password')->toString() : null,
-            'node_id' => $this->filled('node_id') ? $this->integer('node_id') : null,
-        ];
-    }
-
-    /** Default an unsupplied node_id to null so the host is treated as global. */
-    protected function prepareForValidation(): void
-    {
-        if (! $this->filled('node_id')) {
-            $this->merge(['node_id' => null]);
-        }
+        return DatabaseHost::class;
     }
 }

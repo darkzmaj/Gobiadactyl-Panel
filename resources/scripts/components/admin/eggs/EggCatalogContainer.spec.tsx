@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({ navigate: vi.fn(), notifyError: vi.fn(), toast
 
 vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => mocks.navigate,
-    useLocation: () => '/panel/eggs',
+    // Gobia: no router here, so AdminContentBlock renders the plain upstream heading.
+    useRouter: () => null,
     Link: ({ to, ...props }: ComponentProps<'a'> & { to: string }) => <a href={to} {...props} />,
 }));
 vi.mock('sonner', () => ({ toast: { success: mocks.toastSuccess } }));
@@ -40,11 +41,13 @@ const response = <TData,>(config: InternalAxiosRequestConfig, data: TData): Axio
 
 const setup = () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
     render(
         <QueryClientProvider client={queryClient}>
             <EggCatalogContainer />
         </QueryClientProvider>
     );
+
     return { queryClient, user: userEvent.setup() };
 };
 
@@ -68,8 +71,10 @@ describe('egg catalog', () => {
             description: 'Generic server',
             category: 'generic',
         }));
+
         request.mockImplementation(async (config) => response(config, { data: [...entries, paper] }));
         const { user } = setup();
+
         await screen.findByRole('heading', { name: 'Generic 00' });
         expect(screen.getAllByRole('article')).toHaveLength(24);
 
@@ -90,9 +95,11 @@ describe('egg catalog', () => {
     it('imports the chosen id, prevents closing during upload, and allows a failed import to be retried', async () => {
         const error = new AxiosError('Catalog download failed');
         let failImport = (_error: Error) => {};
+
         const pending = new Promise<AxiosResponse<unknown>>((_resolve, reject) => {
             failImport = reject;
         });
+
         request
             .mockImplementationOnce(async (config) => response(config, { data: [paper] }))
             .mockImplementationOnce(() => pending)
@@ -100,6 +107,7 @@ describe('egg catalog', () => {
                 response(config, { object: 'egg', attributes: { id: 42, name: 'Paper' } })
             );
         const { user, queryClient } = setup();
+
         queryClient.setQueryData(adminEggsQueryOptions().queryKey, {
             object: 'list',
             data: [],
@@ -108,6 +116,7 @@ describe('egg catalog', () => {
         await user.click(await screen.findByRole('button', { name: 'Import' }));
         const dialog = await screen.findByRole('dialog', { name: 'Import Paper' });
         const submit = within(dialog).getByRole('button', { name: 'Import Egg' });
+
         await user.click(submit);
         await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
         expect(request.mock.calls[1]![0].url).toBe('/api/admin/eggs/catalog/import');

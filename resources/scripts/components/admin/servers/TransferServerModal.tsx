@@ -3,14 +3,18 @@ import { useStore } from '@tanstack/react-form';
 import { toast } from 'sonner';
 import { useAppForm, Form } from '@/components/form';
 import Select, { type SelectGroup } from '@/components/ui/Select';
-import { useAdminNodesGroupedByLocation } from '@/api/admin/nodes/queries';
+import { type LocationWithNodes, useAdminNodesGroupedByLocation, useAllAdminNodeTags } from '@/api/admin/nodes/queries';
 import {
     type AdminServer,
     transferAdminServerInput,
+    useAdminEggForServer,
     useAdminServerUnassignedAllocations,
     useTransferAdminServer,
 } from '@/api/admin/servers/queries';
+import { relationshipData } from '@/api/relationships';
 import { allocationLabel, transferServerBodyFromFormValues } from '@/components/admin/servers/helpers';
+import TagCheckAlert from '@/components/admin/tags/TagCheckAlert';
+import { nodeAcceptsEgg, tagCheckError } from '@/components/admin/tags/helpers';
 import { Dialog } from '@/components/elements/dialog';
 import SpinnerOverlay from '@/components/elements/SpinnerOverlay';
 import Label from '@/components/elements/Label';
@@ -27,15 +31,46 @@ interface Values {
     allocationAdditional: number[];
 }
 
+/** Whether a node accepts the egg; every node does until the tags have loaded. */
+const useNodeAcceptsEgg = (eggId: number, enabled: boolean) => {
+    const { data: nodes } = useAllAdminNodeTags({ enabled });
+    const { data: egg } = useAdminEggForServer(eggId, { enabled });
+    const eggTags = relationshipData(egg?.attributes.relationships?.tags);
+    const nodeTags = new Map(
+        (nodes?.data ?? []).map((node) => [node.attributes.id, relationshipData(node.attributes.relationships?.tags)])
+    );
+
+    return (nodeId: number) => !egg || nodeAcceptsEgg(nodeTags.get(nodeId) ?? [], eggTags);
+};
+
+const transferNodeGroups = (
+    groups: LocationWithNodes[],
+    currentNodeId: number,
+    acceptsEgg: (nodeId: number) => boolean
+): SelectGroup[] =>
+    groups.flatMap(({ location, nodes }) => {
+        const options = nodes
+            .filter((node) => node.id !== currentNodeId)
+            .map((node) => ({
+                value: node.id,
+                label: acceptsEgg(node.id) ? node.name : `${node.name} (does not accept this egg)`,
+            }));
+        const { long, short } = location.attributes;
+
+        return options.length > 0 ? [{ label: long ? `${long} (${short})` : short, options }] : [];
+    });
+
 export default function TransferServerModal({ server, open, onClose }: Props) {
     const { attributes } = server;
     const transferServer = useTransferAdminServer();
 
     const [nodeId, setNodeId] = useState(0);
+    const [rejection, setRejection] = useState<string | null>(null);
 
     const { data: groups = [] } = useAdminNodesGroupedByLocation({
         enabled: open,
     });
+    const acceptsEgg = useNodeAcceptsEgg(attributes.egg, open);
 
     const { data: allocationsResponse } = useAdminServerUnassignedAllocations(nodeId, {
         enabled: open && nodeId > 0,
@@ -44,30 +79,35 @@ export default function TransferServerModal({ server, open, onClose }: Props) {
 
     const form = useAppForm({
         defaultValues: { allocationId: 0, allocationAdditional: [] } as Values,
-        onSubmit: async ({ value }) => {
+        onSubmitMeta: { ignoreTags: false },
+        onSubmit: async ({ value, meta }) => {
             if (!nodeId) {
                 toast.error('A target node must be selected.');
+
                 return;
             }
+
             if (!value.allocationId) {
                 toast.error('A default allocation must be selected.');
+
                 return;
             }
 
             try {
                 await transferServer.mutateAsync(
-                    transferAdminServerInput(
-                        attributes.id,
-                        transferServerBodyFromFormValues({
+                    transferAdminServerInput(attributes.id, {
+                        ...transferServerBodyFromFormValues({
                             nodeId: Number(nodeId),
                             allocationId: Number(value.allocationId),
                             allocationAdditional: value.allocationAdditional.map(Number),
-                        })
-                    )
+                        }),
+                        ignore_tags: meta.ignoreTags,
+                    })
                 );
+                setRejection(null);
                 onClose();
-            } catch {
-                // Error toast is handled by the mutation.
+            } catch (error) {
+                setRejection(tagCheckError(error, 'node_id'));
             }
         },
     });
@@ -82,55 +122,37 @@ export default function TransferServerModal({ server, open, onClose }: Props) {
 
     const additionalOptions = allocationOptions.filter((option) => option.value !== defaultAllocationId);
 
-    const nodeGroups: SelectGroup[] = [];
-    for (const group of groups) {
-        const options = [];
-        for (const node of group.nodes) {
-            if (node.id !== attributes.node) {
-                options.push({ value: node.id, label: node.name });
-            }
-        }
-
-        if (options.length > 0) {
-            nodeGroups.push({
-                label: group.location.attributes.long
-                    ? `${group.location.attributes.long} (${group.location.attributes.short})`
-                    : group.location.attributes.short,
-                options,
-            });
-        }
-    }
-
     return (
         <Dialog
             open={open}
-            title={'Transfer server'}
+            title='Transfer server'
             preventExternalClose={isSubmitting}
             hideCloseIcon={isSubmitting}
             onClose={onClose}
         >
             <SpinnerOverlay visible={isSubmitting} />
-            <Form form={form} className={'m-0'}>
-                <Label htmlFor={'nodeId'}>Node</Label>
+            <Form form={form} className='m-0'>
+                <Label htmlFor='nodeId'>Node</Label>
                 <Select
-                    id={'nodeId'}
+                    id='nodeId'
                     value={nodeId}
-                    placeholder={'Select a target node...'}
-                    groups={nodeGroups}
+                    placeholder='Select a target node...'
+                    groups={transferNodeGroups(groups, attributes.node, acceptsEgg)}
                     onChange={(value) => {
                         setNodeId(Number(value));
+                        setRejection(null);
                         form.setFieldValue('allocationId', 0);
                         form.setFieldValue('allocationAdditional', []);
                     }}
                 />
-                <p className={'mt-1 text-xs text-muted-foreground'}>The node this server will be transferred to.</p>
-                <div className={'mt-6'}>
-                    <form.AppField name={'allocationId'}>
+                <p className='mt-1 text-xs text-muted-foreground'>The node this server will be transferred to.</p>
+                <div className='mt-6'>
+                    <form.AppField name='allocationId'>
                         {(field) => (
                             <field.SelectField
-                                id={'allocationId'}
-                                label={'Default Allocation'}
-                                description={'The main allocation that will be assigned to this server.'}
+                                id='allocationId'
+                                label='Default Allocation'
+                                description='The main allocation that will be assigned to this server.'
                                 options={[
                                     { value: 0, label: 'Select an allocation...', disabled: true },
                                     ...allocationOptions,
@@ -144,25 +166,35 @@ export default function TransferServerModal({ server, open, onClose }: Props) {
                         )}
                     </form.AppField>
                 </div>
-                <div className={'mt-6'}>
-                    <form.AppField name={'allocationAdditional'}>
+                <div className='mt-6'>
+                    <form.AppField name='allocationAdditional'>
                         {(field) => (
                             <field.MultiSelectField
-                                id={'allocationAdditional'}
-                                label={'Additional Allocation(s)'}
-                                description={'Additional allocations to assign to this server.'}
+                                id='allocationAdditional'
+                                label='Additional Allocation(s)'
+                                description='Additional allocations to assign to this server.'
                                 options={additionalOptions}
                             />
                         )}
                     </form.AppField>
                 </div>
-                <div className={'flex flex-wrap justify-end mt-6'}>
-                    <Button type={'button'} isSecondary className={'w-full sm:w-auto sm:mr-2'} onClick={onClose}>
+                {rejection && (
+                    <div className='mt-6'>
+                        <TagCheckAlert
+                            message={rejection}
+                            action='Transfer anyway'
+                            pending={isSubmitting}
+                            onAction={() => void form.handleSubmit({ ignoreTags: true })}
+                        />
+                    </div>
+                )}
+                <div className='flex flex-wrap justify-end mt-6'>
+                    <Button type='button' isSecondary className='w-full sm:w-auto sm:mr-2' onClick={onClose}>
                         Cancel
                     </Button>
                     <Button
-                        className={'w-full mt-4 sm:w-auto sm:mt-0'}
-                        type={'button'}
+                        className='w-full mt-4 sm:w-auto sm:mt-0'
+                        type='button'
                         disabled={isSubmitting}
                         onClick={() => form.handleSubmit()}
                     >

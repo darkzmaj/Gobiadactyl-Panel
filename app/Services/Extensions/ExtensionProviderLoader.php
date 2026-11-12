@@ -6,6 +6,9 @@ namespace Pterodactyl\Services\Extensions;
 
 use Composer\Autoload\ClassLoader;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Database\Migrations\Migrator;
+use Illuminate\Routing\RouteCollection;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Collection;
 use Pterodactyl\Exceptions\Extensions\InvalidExtensionException;
 use Pterodactyl\Extensions\ExtensionProvider;
@@ -21,6 +24,9 @@ class ExtensionProviderLoader
     /** @var array<string, ExtensionProvider> */
     private array $providers = [];
 
+    /** @var array<string, true> */
+    private array $migrationPaths = [];
+
     public function __construct(
         private readonly Application $app,
         private readonly ExtensionRepository $extensions,
@@ -33,6 +39,7 @@ class ExtensionProviderLoader
     {
         $this->registerAutoloader($enabled);
 
+        $router = $this->app->make(Router::class);
         $registered = [];
         foreach ($enabled as $manifest) {
             if (isset($this->providers[$manifest->id])) {
@@ -40,26 +47,33 @@ class ExtensionProviderLoader
             }
 
             $provider = null;
+            // Cached routes are compiled and are not copied, so nothing is taken back then.
+            $routes = $router->getRoutes();
+            $routes = $routes instanceof RouteCollection ? clone $routes : null;
             try {
                 foreach (array_keys($manifest->requiredExtensions) as $dependency) {
                     throw_unless(in_array($dependency, $registered, true) || isset($this->providers[$dependency]), InvalidExtensionException::class, "Required extension \"{$dependency}\" failed to load.");
                 }
 
                 $this->registerComposerAutoloader($manifest);
-                if ($manifest->provider === null) {
-                    $registered[] = $manifest->id;
-
-                    continue;
+                if ($manifest->provider !== null) {
+                    $provider = $this->makeProvider($manifest);
+                    $provider->beginRegistration();
+                    $this->app->register($provider, force: true);
+                    $provider->commitRegistration();
+                    $this->providers[$manifest->id] = $provider;
                 }
 
-                $provider = $this->makeProvider($manifest);
-                $provider->beginRegistration();
-                $this->app->register($provider, force: true);
-                $provider->commitRegistration();
-                $this->providers[$manifest->id] = $provider;
+                $this->registerMigrations($manifest);
                 $registered[] = $manifest->id;
             } catch (Throwable $exception) {
                 $provider?->discardRegistration();
+                // Routes the provider added with the Route facade instead of the staged
+                // helpers would otherwise stay live; see ExtensionProvider for what remains.
+                if ($routes instanceof RouteCollection) {
+                    $router->setRoutes($routes);
+                }
+
                 $this->extensions->recordFailure(
                     $manifest->id,
                     $exception->getMessage(),
@@ -70,12 +84,6 @@ class ExtensionProviderLoader
         }
 
         $this->extensions->clearErrors($registered);
-    }
-
-    public function bootProviders(): void
-    {
-        // Providers are booted by Application::register() because the extension
-        // loader runs from an app-booted callback.
     }
 
     /**
@@ -105,11 +113,39 @@ class ExtensionProviderLoader
             return;
         }
 
+        // Declaring an autoloader class a second time is a fatal error no handler can catch,
+        // so a package that shares its suffix with one already loaded is refused instead.
+        $suffix = ExtensionComposerInspector::autoloaderSuffix($manifest->directory);
+        throw_if($suffix !== null && ExtensionComposerInspector::autoloaderLoaded($suffix), InvalidExtensionException::class, sprintf('Extension vendor/autoload.php declares the Composer autoloader ComposerAutoloaderInit%s, which another package already loaded. Set "config.autoloader-suffix" in the extension\'s composer.json and run composer dump-autoload.', $suffix));
+
         $loader = require $path;
         throw_unless($loader instanceof ClassLoader, InvalidExtensionException::class, 'Extension vendor/autoload.php must return a Composer ClassLoader.');
+        // Composer registers its loader in front of every other one. Behind the panel's, a
+        // package the extension bundles can never replace the copy the panel loads.
         $loader->unregister();
         $loader->register(prepend: false);
         $this->autoloadedPaths[$path] = true;
+    }
+
+    /**
+     * Enabling an extension runs its database/migrations, so the migrator is told about the
+     * directory the way Laravel's loadMigrationsFrom() does: migrate:status lists those
+     * migrations and migrate:rollback can find them again.
+     */
+    private function registerMigrations(ExtensionManifest $manifest): void
+    {
+        $path = $manifest->path('database', 'migrations');
+        if (isset($this->migrationPaths[$path]) || ! is_dir($path)) {
+            return;
+        }
+
+        $this->migrationPaths[$path] = true;
+        $this->app->afterResolving('migrator', function (Migrator $migrator) use ($path): void {
+            $migrator->path($path);
+        });
+        if ($this->app->resolved('migrator')) {
+            $this->app->make(Migrator::class)->path($path);
+        }
     }
 
     private function makeProvider(ExtensionManifest $manifest): ExtensionProvider
@@ -128,8 +164,10 @@ class ExtensionProviderLoader
     private function loader(): ClassLoader
     {
         if (! $this->classLoader instanceof ClassLoader) {
+            // Appended behind the panel's own loader, so the manifest's PSR-4 map only
+            // serves classes the panel and its packages do not provide.
             $this->classLoader = new ClassLoader;
-            $this->classLoader->register();
+            $this->classLoader->register(prepend: false);
         }
 
         return $this->classLoader;

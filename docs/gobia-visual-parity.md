@@ -8,9 +8,9 @@ No screenshots were attached to the task, so the running 1.x application was the
 
 | Layer | Where | What it does |
 | --- | --- | --- |
-| Design tokens | `themes/gobia/tokens.css` (published by `php artisan p:theme:apply gobia`) | Colour roles, radius, fonts, layout widths for the 2.0 token system (`:root` light, `.dark` dark) |
-| Component classes | `resources/gobia/gobia.css` | The 1.x `gb-*` classes (shell, cards, buttons, lists, filter bar, tree, tabs, gauges, auth). Token driven: neutral and brand ramps (`--n-*`, `--p-*`) are defined once for light and `.dark`. Kept outside `resources/scripts` because the upstream CSS token spec only allows `var()` colours there |
-| Shell | `resources/scripts/gobia/shell/*` | Top bar, sidebar, drawer, footer, profile menu. Each area (dashboard, server, admin) fills the sidebar through `<SidebarContent>` |
+| Design tokens | `extensions/gobia-theme/src/theme.css` (the Gobia theme, `php artisan p:theme:activate gobia-theme`) | Colour roles, radius, fonts, layout widths for the 2.0 token system (`.light` and `.dark`, the class the panel puts on `<html>`) |
+| Component classes | `extensions/gobia-theme/src/gobia.css` | The 1.x `gb-*` classes (shell, cards, buttons, lists, filter bar, tree, tabs, gauges, auth). Token driven: neutral and brand ramps (`--n-*`, `--p-*`) are defined once for light and `.dark`. Kept outside `resources/scripts` because the upstream CSS token spec only allows `var()` colours there |
+| Shell | `extensions/gobia-theme/src/views/*` | Top bar, sidebar, drawer, footer, profile menu as theme views (`layout.app` and the area layouts); the shell draws each area's navigation from the layout model |
 | Primitives restyled | `Button`, `Label`, form controls, `Select`, `Checkbox`, `Dialog`, `DropdownMenu`, `ContentBox`, `TitledGreyBox`, `PageHeading`, `ServerContentBlock`, `DataTable`, `AppToaster`, `Alert`, `Empty` | One change restyles every page that uses them |
 | Extensions | `gobia-core` (dashboard, create instance, overview, appearance, access, updates, profile), `gobia-files` (workspace), `gobia-templates` (list and editor) | Use the `gb-*` classes from core and the SDK components |
 | Branding hand off | `resources/scripts/gobia/branding.ts` (`data-gobia-logo`, `data-gobia-avatar` on `<html>` plus a `gobia:branding` event) | gobia-core publishes the uploaded logo and avatar, the shell renders them. Default is the Gobia wordmark; clearing the setting restores it |
@@ -58,7 +58,7 @@ place the old editor stack remains. A hidden stock `h1` with the server name exi
 
 ## Motion and loading
 
-* Timings (tokens `--gb-dur-*` in `resources/gobia/gobia.css`): hover 100 ms, button press 90 ms, menu 120 ms, dialog 150 ms, drawer 160 ms, page content 130 ms, tab 100 ms. Ease out only, no bounce. Reduced motion switches every animation off.
+* Timings (tokens `--gb-dur-*` in `extensions/gobia-theme/src/gobia.css`): hover 100 ms, button press 90 ms, menu 120 ms, dialog 150 ms, drawer 160 ms, page content 130 ms, tab 100 ms. Ease out only, no bounce. Reduced motion switches every animation off.
 * A route change is instant. The shell (sidebar, top bar, footer) never re-renders for it; only `.gb-main-inner` plays a 130 ms fade and 4 px rise. Router pending time is 0, the pending component is `PageSkeleton` (heading, subtitle and card geometry of a typical page), so a page never shows a spinner and nothing shifts when the content arrives. `scrollbar-gutter: stable` keeps the layout width constant.
 * The route animation uses `backwards` fill. A finished animation with `both` keeps a computed identity `transform` on the content wrapper, which turns it into the containing block of every `position: fixed` descendant and moves context menus away from the pointer. The browser flows caught this.
 * Lists use row skeletons of the final row height (instances, templates, revisions, users).

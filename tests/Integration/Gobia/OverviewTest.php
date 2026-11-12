@@ -45,6 +45,8 @@ test('only administrators can read the overview', function (): void {
 
 test('totals count users, administrators, nodes, instances and locations', function (): void {
     fakeNodes([]);
+    // Other suites may leave administrators behind, so the count is checked against what was there before.
+    $administrators = User::query()->where('root_admin', true)->count();
     $admin = User::factory()->create(['root_admin' => true]);
     User::factory()->count(2)->create();
     $location = Location::factory()->create();
@@ -52,7 +54,7 @@ test('totals count users, administrators, nodes, instances and locations', funct
     $this->createServerModel(['owner_id' => $admin->id]);
 
     $totals = $this->actingAs($admin)->getJson(OVERVIEW)->assertOk()->json('totals');
-    expect($totals['administrators'])->toBe(1);
+    expect($totals['administrators'])->toBe($administrators + 1);
     expect($totals['users'])->toBeGreaterThanOrEqual(3);
     expect($totals['instances'])->toBeGreaterThanOrEqual(1);
     expect($totals['nodes'])->toBeGreaterThanOrEqual(1);

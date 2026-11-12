@@ -1,10 +1,11 @@
 import { useCallback, useEffect } from 'react';
 import axios from 'axios';
 import { useQueryErrorResetBoundary } from '@tanstack/react-query';
-import { useNavigate, useRouter, type ErrorComponentProps } from '@tanstack/react-router';
+import { useRouter, type ErrorComponentProps } from '@tanstack/react-router';
 import { httpErrorToHuman } from '@/api/http';
 import { endBootstrapSession } from '@/bootstrap';
 import { AccessDenied, NotFound, ServerError } from '@/components/elements/ScreenBlock';
+import { parseRedirectSearch } from '@/router/redirect';
 
 const accessDeniedMessage = 'You do not have permission to access this page.';
 
@@ -16,18 +17,24 @@ export class RouteAccessDenied extends Error {
 }
 
 const routeErrorStatus = (error: Error): number | undefined => {
-    if (error instanceof RouteAccessDenied) return 403;
+    if (error instanceof RouteAccessDenied) {
+        return 403;
+    }
 
     return axios.isAxiosError(error) ? error.response?.status : undefined;
 };
 
 function SignInRedirect() {
-    const navigate = useNavigate();
+    const router = useRouter();
 
     useEffect(() => {
         endBootstrapSession();
-        void navigate({ to: '/auth/login', replace: true });
-    }, [navigate]);
+        void router.navigate({
+            to: '/auth/login',
+            search: parseRedirectSearch({ redirect: router.latestLocation.href }),
+            replace: true,
+        });
+    }, [router]);
 
     return null;
 }
@@ -48,6 +55,7 @@ export default function RouteError({ error }: ErrorComponentProps) {
             return <AccessDenied message={error instanceof RouteAccessDenied ? error.message : accessDeniedMessage} />;
         case 404:
             return <NotFound />;
+        case undefined:
         default:
             return <ServerError message={httpErrorToHuman(error)} onRetry={retry} />;
     }

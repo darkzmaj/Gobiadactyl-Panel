@@ -9,9 +9,18 @@ import Icon from '@/components/elements/Icon';
 import SubNavigation from '@/components/elements/SubNavigation';
 import Spinner from '@/components/elements/Spinner';
 import { ServerError } from '@/components/elements/ScreenBlock';
-import ResourceExtensionTabs from '@/extensions/ResourceExtensionTabs';
 import { ExtensionResourceProvider, type ExtensionResourceContext } from '@/extensions/resourceContext';
 import Slot from '@/extensions/Slot';
+import { resourceNavigation, type ResourceTab } from '@/views/navigation';
+
+const tabs: ResourceTab[] = [
+    { id: 'about', label: 'About', to: '/panel/nodes/$id', exact: true },
+    { id: 'settings', label: 'Settings', to: '/panel/nodes/$id/settings' },
+    { id: 'configuration', label: 'Configuration', to: '/panel/nodes/$id/configuration' },
+    { id: 'allocation', label: 'Allocation', to: '/panel/nodes/$id/allocation' },
+    { id: 'tags', label: 'Tags', to: '/panel/nodes/$id/tags' },
+    { id: 'servers', label: 'Servers', to: '/panel/nodes/$id/servers' },
+];
 
 export default function NodeDetailContainer() {
     const loadedNode = nodeDetailRoute.useLoaderData();
@@ -29,11 +38,10 @@ export default function NodeDetailContainer() {
     }
 
     if (!node) {
-        return <Spinner size={'large'} centered />;
+        return <Spinner size='large' centered />;
     }
 
     const { attributes } = node;
-    const params = { id: attributes.id };
 
     return (
         <ExtensionResourceProvider.Provider value={resourceContext}>
@@ -43,37 +51,17 @@ export default function NodeDetailContainer() {
                 description={attributes.fqdn}
             >
                 <Link
-                    to={'/panel/nodes'}
-                    className={'inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4'}
+                    to='/panel/nodes'
+                    className='inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4'
                 >
-                    <Icon icon={ArrowLeft} className={'mr-2'} />
+                    <Icon icon={ArrowLeft} className='mr-2' />
                     Back to Nodes
                 </Link>
                 <Slot name='panel.nodes.detail.actions' data={resourceContext} />
-                <SubNavigation className={'mb-6 rounded-md'}>
-                    <div>
-                        <Link
-                            to={'/panel/nodes/$id'}
-                            params={params}
-                            activeOptions={{ exact: true, includeSearch: false }}
-                        >
-                            About
-                        </Link>
-                        <Link to={'/panel/nodes/$id/settings'} params={params}>
-                            Settings
-                        </Link>
-                        <Link to={'/panel/nodes/$id/configuration'} params={params}>
-                            Configuration
-                        </Link>
-                        <Link to={'/panel/nodes/$id/allocation'} params={params}>
-                            Allocation
-                        </Link>
-                        <Link to={'/panel/nodes/$id/servers'} params={params}>
-                            Servers
-                        </Link>
-                        <ResourceExtensionTabs parent='admin.node' basePath={`/panel/nodes/${attributes.id}`} />
-                    </div>
-                </SubNavigation>
+                <SubNavigation
+                    className='mb-6 rounded-sm'
+                    items={resourceNavigation('admin.node', { id: String(attributes.id) }, tabs)}
+                />
                 <Outlet />
             </AdminContentBlock>
         </ExtensionResourceProvider.Provider>

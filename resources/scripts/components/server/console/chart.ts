@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 
 export const CHART_WINDOW_MS = 20_000;
 
@@ -7,83 +7,59 @@ const RETAIN_MS = CHART_WINDOW_MS + 2_000;
 // `t` is a performance.now() timestamp; a series value is null until its first sample.
 export type ChartPoint = { t: number } & Record<string, number | null>;
 
-/** Rolling buffer of timestamped samples; `keys` must be referentially stable. */
-export function useRollingData(keys: readonly string[]) {
-    const [data, setData] = useState<ChartPoint[]>([]);
-
-    const push = useCallback(
-        (values: Record<string, number | null>, t: number) =>
-            setData((prev) => {
-                const point: ChartPoint = { t };
-                for (const key of keys) {
-                    const value = values[key];
-                    point[key] = value === null || value === undefined ? null : Number(value.toFixed(2));
-                }
-                const cutoff = t - RETAIN_MS;
-                let start = 0;
-                while (start < prev.length && prev[start].t < cutoff) start++;
-                return [...prev.slice(start), point];
-            }),
-        [keys]
-    );
-
-    const clear = useCallback(() => setData([]), []);
-
-    return { data, push, clear };
+// Type aliases, not interfaces, so a chart reads them as `ChartPoint`s.
+export type ServerGraphPoint = { readonly t: number; readonly value: number | null };
+export type ServerNetworkPoint = { readonly t: number; readonly rx: number | null; readonly tx: number | null };
+export interface ServerGraphs {
+    /** CPU load in percent. */
+    readonly cpu: readonly ServerGraphPoint[];
+    /** Memory in MiB. */
+    readonly memory: readonly ServerGraphPoint[];
+    /** Bytes received and sent since the previous sample. */
+    readonly network: readonly ServerNetworkPoint[];
 }
 
-/** A performance.now() clock that re-renders at ~`fps` while `active`. */
-export function useAnimationClock(active: boolean, fps = 30): number {
-    const [now, setNow] = useState(() => performance.now());
+/** A sample value as the graphs plot it. */
+export const chartValue = (value: number): number => Number(value.toFixed(2));
 
-    useEffect(() => {
-        if (!active) return;
+/** Appends a sample to a rolling buffer, dropping samples older than the chart window keeps. */
+export function appendChartPoint<TPoint extends { readonly t: number }>(
+    points: readonly TPoint[],
+    point: TPoint
+): TPoint[] {
+    const cutoff = point.t - RETAIN_MS;
+    let start = 0;
 
-        const minDelta = 1000 / fps;
-        let frame = 0;
-        let last = 0;
+    while (start < points.length && points[start].t < cutoff) {
+        start++;
+    }
 
-        const tick = (timestamp: number) => {
-            frame = requestAnimationFrame(tick);
-            if (timestamp - last >= minDelta) {
-                last = timestamp;
-                setNow(timestamp);
-            }
-        };
-        frame = requestAnimationFrame(tick);
-
-        return () => cancelAnimationFrame(frame);
-    }, [active, fps]);
-
-    return now;
+    return [...points.slice(start), point];
 }
 
-/** Whether the element intersects the viewport while the document is visible. */
-export function useElementVisible(ref: RefObject<Element | null>): boolean {
-    const [intersecting, setIntersecting] = useState(false);
-    const [documentVisible, setDocumentVisible] = useState(() => document.visibilityState !== 'hidden');
+/** The element's width in whole pixels; 0 until it has been measured. */
+export function useElementWidth(ref: RefObject<Element | null>): number {
+    const [width, setWidth] = useState(0);
 
     useEffect(() => {
         const element = ref.current;
-        if (!element) return;
 
-        const observer = new IntersectionObserver((entries) => {
-            const entry = entries[entries.length - 1];
+        if (!element) {
+            return;
+        }
+
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries.at(-1);
+
             if (entry) {
-                setIntersecting(entry.isIntersecting);
+                setWidth(Math.floor(entry.contentRect.width));
             }
         });
+
         observer.observe(element);
 
         return () => observer.disconnect();
     }, [ref]);
 
-    useEffect(() => {
-        const update = () => setDocumentVisible(document.visibilityState !== 'hidden');
-        document.addEventListener('visibilitychange', update);
-
-        return () => document.removeEventListener('visibilitychange', update);
-    }, []);
-
-    return intersecting && documentVisible;
+    return width;
 }

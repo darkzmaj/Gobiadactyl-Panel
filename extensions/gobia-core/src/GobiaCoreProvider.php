@@ -27,10 +27,10 @@ use Pterodactyl\Services\Extensions\ExtensionSettingsDefinition;
 
 class GobiaCoreProvider extends ExtensionProvider
 {
-    /** Shipped with the Gobia theme (themes/gobia/assets/img, published to /assets/theme/img by `p:theme:apply gobia`). */
-    public const string DEFAULT_LOGO = '/assets/theme/img/icon-256.png';
+    /** Gobia brand images are static files in public/assets/gobia/img (tracked, so every release ships them). */
+    public const string DEFAULT_LOGO = '/assets/gobia/img/icon-256.png';
 
-    public const string DEFAULT_FAVICON = '/assets/theme/img/favicon-32.png';
+    public const string DEFAULT_FAVICON = '/assets/gobia/img/favicon-32.png';
 
     public function register(): void
     {

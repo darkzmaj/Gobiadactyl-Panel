@@ -53,10 +53,12 @@ use Pterodactyl\Http\Controllers\Api\Admin\Servers\TransferController;
 use Pterodactyl\Http\Controllers\Api\Admin\Servers\TransferProgressController;
 use Pterodactyl\Http\Controllers\Api\Admin\Settings\AdvancedController;
 use Pterodactyl\Http\Controllers\Api\Admin\Settings\GeneralController;
+use Pterodactyl\Http\Controllers\Api\Admin\Settings\LogoController;
 use Pterodactyl\Http\Controllers\Api\Admin\Settings\MailController;
 use Pterodactyl\Http\Controllers\Api\Admin\Settings\SettingsController;
 use Pterodactyl\Http\Controllers\Api\Admin\Settings\TestMailController;
 use Pterodactyl\Http\Controllers\Api\Admin\Tags\TagController;
+use Pterodactyl\Http\Controllers\Api\Admin\Themes\ThemeController;
 use Pterodactyl\Http\Controllers\Api\Admin\Users\DisableTwoFactorController;
 use Pterodactyl\Http\Controllers\Api\Admin\Users\ExternalController as UserExternalController;
 use Pterodactyl\Http\Controllers\Api\Admin\Users\UserController;
@@ -80,7 +82,9 @@ Route::get('/activity/filters', ActivityFilterController::class)->name('api.admi
 */
 Route::prefix('/extensions')->name('api.admin.extensions')->group(function (): void {
     Route::get('/', [ExtensionController::class, 'index']);
+    Route::get('/forms', [ExtensionController::class, 'forms'])->name('.forms');
     Route::get('/{extension}/settings', [ExtensionController::class, 'settings'])->name('.settings');
+    Route::get('/{extension}/icon', [ExtensionController::class, 'icon'])->name('.icon');
 
     Route::middleware(RequireSessionAuthentication::class)->group(function (): void {
         Route::post('/', [ExtensionController::class, 'store'])->name('.install');
@@ -90,6 +94,28 @@ Route::prefix('/extensions')->name('api.admin.extensions')->group(function (): v
         Route::post('/{extension}/enable', [ExtensionController::class, 'enable'])->name('.enable');
         Route::post('/{extension}/disable', [ExtensionController::class, 'disable'])->name('.disable');
         Route::delete('/{extension}', [ExtensionController::class, 'destroy'])->name('.delete');
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Theme Controller Routes
+|--------------------------------------------------------------------------
+|
+| Endpoint: /api/admin/themes
+|
+*/
+Route::prefix('/themes')->name('api.admin.themes')->group(function (): void {
+    Route::get('/', [ThemeController::class, 'index']);
+    Route::get('/{theme}/settings', [ThemeController::class, 'settings'])->name('.settings');
+
+    Route::middleware(RequireSessionAuthentication::class)->group(function (): void {
+        Route::delete('/preview', [ThemeController::class, 'stopPreview'])->name('.preview.stop');
+        Route::post('/{theme}/activate', [ThemeController::class, 'activate'])->name('.activate');
+        Route::post('/{theme}/preview', [ThemeController::class, 'preview'])->name('.preview');
+        Route::patch('/{theme}/settings', [ThemeController::class, 'updateSettings'])->name('.settings.update');
+        Route::post('/{theme}/settings/{setting}/image', [ThemeController::class, 'uploadImage'])->name('.settings.image');
+        Route::delete('/{theme}/settings/{setting}/image', [ThemeController::class, 'clearImage'])->name('.settings.image.clear');
     });
 });
 
@@ -110,6 +136,8 @@ Route::prefix('/users')->name('api.admin.users')->group(function (): void {
     Route::post('/', [UserController::class, 'store'])->name('.store');
     Route::post('/{user:id}/disable-2fa', DisableTwoFactorController::class)->name('.disable-2fa');
     Route::put('/{user:id}', [UserController::class, 'update'])->name('.update');
+    Route::post('/{user:id}/avatar', [UserController::class, 'updateAvatar'])->name('.avatar.update');
+    Route::delete('/{user:id}/avatar', [UserController::class, 'deleteAvatar'])->name('.avatar.delete');
 
     Route::delete('/{user:id}', [UserController::class, 'destroy'])->name('.delete');
 });
@@ -124,7 +152,7 @@ Route::prefix('/users')->name('api.admin.users')->group(function (): void {
 */
 Route::prefix('/nodes/{node:id}')->name('api.admin.nodes')->group(function (): void {
     Route::get('/system-information', SystemInformationController::class)->name('.system-information');
-    Route::post('/deploy-token', DeployTokenController::class)->name('.deploy-token');
+    Route::post('/deploy-token', DeployTokenController::class)->middleware(RequireSessionAuthentication::class)->name('.deploy-token');
     Route::get('/utilization', UtilizationController::class)->name('.utilization');
 });
 
@@ -201,7 +229,7 @@ Route::prefix('/servers/{server:admin_identifier}/databases')->name('api.admin.s
 */
 Route::prefix('/servers/{server:admin_identifier}/backups')->name('api.admin.servers.backups')->group(function (): void {
     Route::get('/', [ServerBackupController::class, 'index']);
-    Route::post('/{backup:id}/toggle', ToggleBackupController::class)->name('.toggle')->withoutScopedBindings();
+    Route::post('/{backup:uuid}/toggle', ToggleBackupController::class)->name('.toggle')->withoutScopedBindings();
 });
 
 /*
@@ -215,7 +243,7 @@ Route::prefix('/servers/{server:admin_identifier}/backups')->name('api.admin.ser
 Route::prefix('/nodes')->name('api.admin.nodes')->group(function (): void {
     Route::get('/', [NodeController::class, 'index']);
     Route::get('/{node:id}', [NodeController::class, 'show'])->name('.view');
-    Route::get('/{node:id}/configuration', ConfigurationController::class)->name('.configuration');
+    Route::get('/{node:id}/configuration', ConfigurationController::class)->middleware(RequireSessionAuthentication::class)->name('.configuration');
 
     Route::post('/', [NodeController::class, 'store'])->name('.store');
     Route::put('/{node:id}', [NodeController::class, 'update'])->name('.update');
@@ -400,6 +428,8 @@ Route::prefix('/tags')->name('api.admin.tags')->group(function (): void {
 */
 Route::prefix('/settings')->name('api.admin.settings')->group(function (): void {
     Route::get('/', [SettingsController::class, 'index']);
+    Route::post('/logo', [LogoController::class, 'store'])->name('.logo.store');
+    Route::delete('/logo', [LogoController::class, 'destroy'])->name('.logo.destroy');
     Route::put('/general', GeneralController::class)->name('.general');
     Route::put('/mail', MailController::class)->name('.mail');
     Route::post('/mail/test', TestMailController::class)->name('.mail.test');

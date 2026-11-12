@@ -21,41 +21,30 @@ const legacySlotNames = [
 ] as const;
 
 const anchorFiles = [
-    '../../resources/scripts/components/auth/LoginContainer.tsx',
-    '../../resources/scripts/components/server/users/EditSubuserModal.tsx',
+    '../../resources/scripts/themes/classic/views/auth/LoginPage.tsx',
+    '../../resources/scripts/themes/classic/views/server/users/SubuserForm.tsx',
+    '../../resources/scripts/views/pages.ts',
     '../../resources/scripts/router/routeTree.ts',
-    '../../resources/scripts/router/layouts/AccountLayout.tsx',
-    '../../resources/scripts/router/layouts/AdminLayout.tsx',
-    '../../resources/scripts/router/layouts/ServerLayout.tsx',
-    '../../resources/scripts/components/NavigationBar.tsx',
-    '../../resources/scripts/gobia/shell/GobiaShell.tsx',
-    '../../resources/scripts/gobia/shell/Sidebars.tsx',
-    '../../resources/scripts/components/admin/AdminSidebar.tsx',
-    '../../resources/scripts/components/dashboard/DashboardContainer.tsx',
-    '../../resources/scripts/components/dashboard/AccountOverviewContainer.tsx',
-    '../../resources/scripts/components/dashboard/ServerRow.tsx',
-    '../../resources/scripts/components/dashboard/ServerCardView.tsx',
-    '../../resources/scripts/components/server/console/ServerConsoleContainer.tsx',
-    '../../resources/scripts/components/server/files/FileManagerContainer.tsx',
-    '../../resources/scripts/components/server/files/FileManagerView.tsx',
-    '../../resources/scripts/components/server/files/FileObjectRow.tsx',
-    '../../resources/scripts/components/server/files/MassActionsBar.tsx',
-    '../../resources/scripts/components/server/startup/StartupContainer.tsx',
+    '../../resources/scripts/themes/classic/views/layout/AccountLayout.tsx',
+    '../../resources/scripts/themes/classic/views/layout/AdminLayout.tsx',
+    '../../resources/scripts/themes/classic/views/layout/ServerLayout.tsx',
+    '../../resources/scripts/themes/classic/views/layout/AppLayout.tsx',
+    '../../resources/scripts/themes/classic/views/dashboard/ServerList.tsx',
+    '../../resources/scripts/themes/classic/views/account/AccountOverview.tsx',
+    '../../resources/scripts/themes/classic/views/dashboard/ServerCardIdentity.tsx',
+    '../../resources/scripts/themes/classic/views/server/console/ConsolePage.tsx',
+    '../../resources/scripts/themes/classic/views/server/console/Power.tsx',
+    '../../resources/scripts/themes/classic/views/server/files/FilesPage.tsx',
+    '../../resources/scripts/themes/classic/views/server/files/FileManagerToolbar.tsx',
+    '../../resources/scripts/themes/classic/views/server/files/FileManagerSelection.tsx',
+    '../../resources/scripts/themes/classic/views/server/files/FileRows.tsx',
+    '../../resources/scripts/themes/classic/views/server/startup/StartupPage.tsx',
     '../../resources/scripts/components/admin/nodes/NodeDetailContainer.tsx',
     '../../resources/scripts/components/admin/servers/ServerDetailContainer.tsx',
     '../../resources/scripts/components/admin/eggs/EggDetailContainer.tsx',
     '../../resources/scripts/components/admin/users/UserDetailContainer.tsx',
     '../../resources/scripts/components/admin/overview/OverviewContainer.tsx',
 ];
-
-// The per server Users page is replaced by Account, Access (redirect in routeTree.ts), so its four page slots have no
-// anchor any more. They stay in the public catalog so extensions that register them keep loading.
-const unmounted = new Set([
-    'server.users.before',
-    'server.users.after',
-    'server.users.create.before',
-    'server.users.create.after',
-]);
 
 const anchorSource = anchorFiles.map((file) => readFileSync(resolve(__dirname, file), 'utf8')).join('\n');
 const sdkTypes = readFileSync(resolve(__dirname, './types/extensions/registry.d.ts'), 'utf8');
@@ -79,7 +68,7 @@ describe('extension slot coverage', () => {
         expect(publishedSlotNames()).toEqual([...SLOT_NAMES]);
     });
 
-    it.each(SLOT_NAMES.filter((name) => !unmounted.has(name)))('mounts the %s slot in the application', (name) => {
+    it.each(SLOT_NAMES)('mounts the %s slot in the application', (name) => {
         expect(anchorSource, `${name} is public but has no core anchor`).toContain(`'${name}'`);
     });
 });

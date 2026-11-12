@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Pterodactyl\Actions\Backups;
 
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\DB;
 use LogicException;
 use Pterodactyl\Contracts\Backups\DeletesBackups;
 use Pterodactyl\Exceptions\Http\Connection\DaemonConnectionException;
 use Pterodactyl\Exceptions\Service\Backup\BackupLockedException;
 use Pterodactyl\Extensions\Backups\BackupManager;
 use Pterodactyl\Extensions\Filesystem\S3Filesystem;
+use Pterodactyl\Facades\Activity;
 use Pterodactyl\Facades\Daemon;
 use Pterodactyl\Models\Backup;
 use Throwable;
@@ -22,12 +22,6 @@ final readonly class DeleteBackup implements DeletesBackups
         private BackupManager $manager,
     ) {}
 
-    /**
-     * Deletes a backup from the system. If the backup is stored in S3 a request
-     * will be made to delete that backup from the disk as well.
-     *
-     * @throws Throwable
-     */
     public function delete(Backup $backup): void
     {
         // If the backup is marked as failed it can still be deleted, even if locked
@@ -38,13 +32,10 @@ final readonly class DeleteBackup implements DeletesBackups
         // the lock, so this condition should really never happen.
         throw_if($backup->is_locked && ($backup->is_successful && ($backup->completed_at) !== null), BackupLockedException::class);
 
+        // The stored archive is removed first, so the row is kept if its disk rejects the request.
         if ($backup->disk === Backup::ADAPTER_AWS_S3) {
             $this->deleteFromS3($backup);
-
-            return;
-        }
-
-        DB::transaction(function () use ($backup): void {
+        } else {
             try {
                 Daemon::server($backup->server)->backups()->delete($backup);
             } catch (DaemonConnectionException $daemonConnectionException) {
@@ -52,28 +43,25 @@ final readonly class DeleteBackup implements DeletesBackups
                 // doesn't actually exist and remove its reference from the Panel as well.
                 throw_if($daemonConnectionException->getStatusCode() !== Response::HTTP_NOT_FOUND, $daemonConnectionException);
             }
+        }
 
-            $backup->delete();
-        });
+        $backup->delete();
+
+        Activity::event('server:backup.delete')
+            ->subject($backup->server, $backup)
+            ->property(['name' => $backup->name, 'failed' => ! $backup->is_successful])
+            ->log();
     }
 
-    /**
-     * Deletes a backup from an S3 disk.
-     *
-     * @throws Throwable
-     */
+    /** @throws Throwable */
     private function deleteFromS3(Backup $backup): void
     {
-        DB::transaction(function () use ($backup): void {
-            $backup->delete();
+        $adapter = $this->manager->adapter(Backup::ADAPTER_AWS_S3);
+        throw_unless($adapter instanceof S3Filesystem, LogicException::class, 'The S3 backup adapter is not configured correctly.');
 
-            $adapter = $this->manager->adapter(Backup::ADAPTER_AWS_S3);
-            throw_unless($adapter instanceof S3Filesystem, LogicException::class, 'The S3 backup adapter is not configured correctly.');
-
-            $adapter->getClient()->deleteObject([
-                'Bucket' => $adapter->getBucket(),
-                'Key' => sprintf('%s/%s.tar.gz', $backup->server->uuid, $backup->uuid),
-            ]);
-        });
+        $adapter->getClient()->deleteObject([
+            'Bucket' => $adapter->getBucket(),
+            'Key' => sprintf('%s/%s.tar.gz', $backup->server->uuid, $backup->uuid),
+        ]);
     }
 }

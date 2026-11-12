@@ -15,10 +15,10 @@ return [
     | down.
     |
     */
-    'enabled' => env('PTERODACTYL_EXTENSIONS_ENABLED', true),
+    'enabled' => (bool) env('PTERODACTYL_EXTENSIONS_ENABLED', true),
 
     'panel_version' => config('app.version') === 'canary' ? '2.0.0-dev' : config('app.version'),
-    'sdk_version' => '2.0.0-beta.4',
+    'sdk_version' => '2.0.0-beta.6',
     'progress_retention_seconds' => 3600,
 
     // How long the result of a head tag callback (registerHeadTags) is cached; 0 disables it.
@@ -33,7 +33,15 @@ return [
     // Where enabled extensions' built frontend assets are published.
     'assets_directory' => public_path('assets/extensions'),
 
+    'signed_urls' => [
+        'enabled' => (bool) env('PTERODACTYL_EXTENSIONS_URL_INSTALLS_ENABLED', true),
+        'public_key' => 'eMHrvRiVVicU1SwUF8yeV3KXkQq6qAOZpmpilO0dg/o=',
+        'issuer' => 'Infraly, LLC',
+        'audience' => 'pterodactyl-panel',
+    ],
+
     // The filesystem disk that holds files uploaded through `file` settings. They are
-    // served by the panel from /extension-files, so the disk does not need to be public.
+    // served by the panel from /extension-files with sandboxing headers, so the disk must
+    // be private: a public disk (such as `public`) is refused.
     'files_disk' => env('PTERODACTYL_EXTENSIONS_FILES_DISK', 'local'),
 ];

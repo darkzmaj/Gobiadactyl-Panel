@@ -45,6 +45,9 @@ Upstream base SHA at migration start: `0d8cd97d00852aa7b251ea39d05a6df168874db1`
   validation as markers. CodeMirror is not the Gobia editor; it stays only in upstream admin egg editors. Gobia pages follow `docs/gobia-visual-parity.md`: every new page gets the
   Gobia page head (`PageHeading`: title and one line of context), titled cards, tokens only, skeletons instead of spinners, and is added to the browser matrix.
 
+* **The Gobia look is the `gobia-theme` extension** (`extensions/gobia-theme`, upstream's theme platform: tokens and `gobia.css`, skins, views for the
+  shell, account, auth and settings tabs; `php artisan p:theme:activate gobia-theme`). Change the look there, not in core files; see
+  `docs/gobia-core-patches.md` for what still lives in core and why.
 * Gobia design is the visual source of truth, expressed through Pterodactyl 2.0 design tokens (`packages/sdk/theme*.css`,
   Tailwind 4). Dark, light and system.
 * Do not reintroduce Blade, AdminLTE, Bootstrap, webpack or 1.x CSS hacks.
@@ -70,7 +73,7 @@ Upstream base SHA at migration start: `0d8cd97d00852aa7b251ea39d05a6df168874db1`
 
 Run the official upstream checks plus Gobia tests before calling any work finished. Report failures honestly.
 
-* **Linux is authoritative.** Pterodactyl assumes Linux. The Gobia CI workflow (`.github/workflows/gobia-ci.yaml`: Frontend on PHP 8.4 and 8.3, Static Analysis, Tests on PHP 8.3 and
+* **Linux is authoritative.** Pterodactyl assumes Linux. The Gobia CI workflow (`.github/workflows/gobia-ci.yaml`: Lint (Pint, Rector, PHPStan, type coverage, `api:check`), Frontend on PHP 8.4 and 8.3, Tests on PHP 8.3 and
   8.4 against MariaDB 11 and MySQL 8) is the verdict; a Windows pass is a convenience. When the GitHub organisation cannot run CI, push the branch to a private mirror and run the
   same workflow there. Never call work finished on a Windows result alone.
 * **Gobia browser suite** (needs `npm run dev:gobia`): `GOBIA_VISUAL_USER=... GOBIA_VISUAL_PASSWORD=... node scripts/gobia/visual.mjs [visual|responsive|smoke|flows|a11y]`,
@@ -104,7 +107,7 @@ Exact behaviour, so a session never has to rely on chat history:
 
 * **Monaco is the Gobia editor.** One Monaco runtime, lazy loaded with the workspace (the dashboard makes zero Monaco requests), **no minimap**. `CodeEditor.tsx` creates one editor instance per pane.
 * **Panes.** `usePane.tsx` is one server's explorer, tabs, editor and dialogs as a hook. `Workspace.tsx` is the layout: single mode (one pane) or **dual mode** (Server 1 and Server 2). Dual mode shows **two stacked explorers in the one explorer column** and **two Monaco editors**, stacked or side by side (the explorers stay stacked in both). Dual mode is remembered in `localStorage` (`gobia-files:dual`); the second pane is a component rendered only while dual mode is on, so single mode keeps a single editor. Mobile shows one server at a time with a Server 1 / Server 2 switch; nothing is unmounted, so dirty text survives.
-* **Server selection.** Server 1 is the server of the page: its picker (and the instance card of the main sidebar, `gobia/shell/ServerSwitcher.tsx`) navigate to the same page of another server (Files stays Files; where the page is not allowed the first allowed page opens). Server 2 has its own picker and never changes Server 1. Unsaved tabs are kept per server and pane in `sessionStorage` (`session.ts`) and come back when the server is selected again.
+* **Server selection.** Server 1 is the server of the page: its picker (and the instance card of the main sidebar, `extensions/gobia-theme/src/views/ServerCard.tsx`) navigate to the same page of another server (Files stays Files; where the page is not allowed the first allowed page opens). Server 2 has its own picker and never changes Server 1. Unsaved tabs are kept per server and pane in `sessionStorage` (`session.ts`) and come back when the server is selected again.
 * **Model identity.** A Monaco model is `gobia://<server uuid>/<path>?<pane>`: server UUID, canonical path and pane. Two servers with `plugins/config.yml` are two documents; the same server in both panes is two documents too. Undo history, cursor, scroll, markers, dirty and saving state are per model/tab.
 * **Dirty state lives in the model**, not in React state: the editor reports only flips of edited/clean (`onDirtyChange`) and a debounced text snapshot (`onSnapshot`, 150 ms); typing never re-renders the workspace. A model is clean again when its alternative version id equals the saved one (undo back to the saved text is clean).
 * **Keyboard.** Ctrl/Cmd+S saves the active file, Ctrl/Cmd+Shift+S saves every open file of every pane, Find/Replace/Undo/Redo are Monaco's. Monaco commands are registered with `editorId == '<id>'` (`addCommand` is global otherwise: the last editor created answered Ctrl+S for all of them). A capture listener on `window` in `Workspace.tsx` calls `preventDefault()` synchronously for Ctrl/Cmd+S everywhere else on the page (explorer, tab strip) and saves the pane that holds focus (`data-pane`) or was touched last.
@@ -186,7 +189,7 @@ Requirements: PHP ^8.3 (ext intl, mbstring, pdo_mysql, posix, zip, bcmath, gd), 
 | Backend tests | `composer test:unit`, `composer test:integration` (Pest) |
 | All backend checks | `composer test` (type coverage, unit, integration, lint, types) |
 | Formatting (PHP) | `composer lint` (rector + pint); check only: `composer test:lint` |
-| PHPStan | `composer test:types` (`phpstan analyse -c phpstan-rules.neon`) |
+| PHPStan | `composer test:types` (`phpstan analyse`, config `phpstan.neon`) |
 | OpenAPI contract | `composer docs:openapi:verify` |
 | Extension validation | `npm run build:vite` builds `packages/hello-world`; `node scripts/check-extension-runtime.mjs`; `packages/sdk` specs via `npm test` |
 

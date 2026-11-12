@@ -7,12 +7,12 @@ const RecentActivity = lazy(() => import('@/components/admin/overview/RecentActi
 /** The administration landing page. Statistics come from the gobia-core overview panel through the slot below. */
 export default function OverviewContainer() {
     return (
-        <AdminContentBlock title={'Admin Overview'} heading={'Overview'} description={'Infrastructure at a glance.'}>
-            <Slot name={'panel.overview.before'} />
+        <AdminContentBlock title='Admin Overview' heading='Overview' description='Infrastructure at a glance.'>
+            <Slot name='panel.overview.before' />
             <Suspense fallback={null}>
                 <RecentActivity />
             </Suspense>
-            <Slot name={'panel.overview.after'} />
+            <Slot name='panel.overview.after' />
         </AdminContentBlock>
     );
 }

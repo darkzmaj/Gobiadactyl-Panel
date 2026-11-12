@@ -46,7 +46,6 @@ final readonly class ServerClient
             'data.utilization.network.tx_bytes' => ['sometimes', 'integer:strict'],
         ]);
 
-        // SAFETY: the transport validates the bounded JSON and the stats shape above.
         /** @var DaemonStats $data */
         return $data;
     }
@@ -72,11 +71,6 @@ final readonly class ServerClient
     public function reinstall(): void
     {
         $this->connection->request('POST', "/api/servers/{$this->uuid}/reinstall");
-    }
-
-    public function requestArchive(): void
-    {
-        $this->connection->request('POST', "/api/servers/{$this->uuid}/archive");
     }
 
     public function power(string $action): Response
@@ -108,7 +102,6 @@ final readonly class ServerClient
             'data.data.*' => ['string'],
         ]);
 
-        // SAFETY: the transport validates the bounded JSON and the list of lines above.
         /** @var array{data: list<string>|null} $data */
         return $data['data'] ?? [];
     }

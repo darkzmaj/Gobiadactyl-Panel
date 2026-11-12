@@ -1,21 +1,27 @@
-import React from 'react';
+import type React from 'react';
+import { replaceable, useSkin } from '@/themes/skins';
 
-interface Props {
+export interface PageHeadingProps {
     title: React.ReactNode;
     description?: React.ReactNode;
     actions?: React.ReactNode;
     className?: string;
 }
 
-/** The header every page starts with: title, one line of context and the page's actions. */
-export default function PageHeading({ title, description, actions, className }: Props) {
+function CorePageHeading({ title, description, actions, className }: PageHeadingProps) {
+    const ui = useSkin('PageHeading', {});
+
     return (
-        <header className={'gb-page-head' + (className ? ` ${className}` : '')}>
-            <div style={{ minWidth: 0 }}>
-                <h1>{title}</h1>
-                {description && <p>{description}</p>}
+        <header {...ui('root', className)}>
+            <div {...ui('text')}>
+                <h1 {...ui('title')}>{title}</h1>
+                {description && <p {...ui('description')}>{description}</p>}
             </div>
-            {actions && <div className={'gb-page-actions'}>{actions}</div>}
+            {actions && <div {...ui('actions')}>{actions}</div>}
         </header>
     );
 }
+
+const PageHeading = replaceable('PageHeading', CorePageHeading);
+
+export default PageHeading;

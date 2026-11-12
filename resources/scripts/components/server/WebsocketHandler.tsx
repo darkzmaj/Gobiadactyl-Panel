@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { serverResourceUsageQueryOptions } from '@/api/account/servers/queries';
 import { getServerWebsocketCredentials, useCurrentServer, useCurrentServerUuid } from '@/api/server/queries';
 import { pushLiveStats } from '@/gobia/liveStats';
 import { parseServerStatsPayload } from '@/components/server/console/stats';
@@ -37,9 +39,12 @@ export default function WebsocketHandler() {
     const node = useCurrentServer(selectSocketNode);
     const setServerStatus = useServerStore((state) => state.status.setServerStatus);
     const { setInstance, setConnectionState, setReconnecting } = useServerStore((state) => state.socket);
+    const queryClient = useQueryClient();
 
     const updateToken = useCallback((uuid: string, socket: Websocket) => {
-        if (updatingToken.current || activeSocket.current !== socket || activeUuid.current !== uuid) return;
+        if (updatingToken.current || activeSocket.current !== socket || activeUuid.current !== uuid) {
+            return;
+        }
 
         updatingToken.current = true;
         getServerWebsocketCredentials(uuid)
@@ -93,16 +98,27 @@ export default function WebsocketHandler() {
             });
             socket.on('stats', (payload) => {
                 const stats = parseServerStatsPayload(payload);
-                if (stats)
+
+                if (stats) {
                     pushLiveStats(uuid, {
                         cpu: stats.cpu_absolute,
                         memory: stats.memory_bytes,
                         disk: stats.disk_bytes,
                     });
+                }
             });
             socket.on('status', (status) => {
                 if (isServerStatus(status)) {
                     setServerStatus(status);
+                    // The cached resources carry the state the app shell and the dashboard show.
+                    queryClient.setQueryData(
+                        serverResourceUsageQueryOptions(uuid).queryKey,
+                        (resources) =>
+                            resources && {
+                                ...resources,
+                                attributes: { ...resources.attributes, current_state: status },
+                            }
+                    );
                 }
             });
 
@@ -134,7 +150,7 @@ export default function WebsocketHandler() {
 
             return socket;
         },
-        [setConnectionState, setReconnecting, setServerStatus, updateToken]
+        [queryClient, setConnectionState, setReconnecting, setServerStatus, updateToken]
     );
 
     // Reconnects with fresh credentials whenever the server moves to another node.
@@ -145,6 +161,7 @@ export default function WebsocketHandler() {
 
         let cancelled = false;
         const socket = createSocket(uuid);
+
         activeSocket.current = socket;
         activeUuid.current = uuid;
         setConnectionState(false);
@@ -154,6 +171,7 @@ export default function WebsocketHandler() {
             .then((data) => {
                 if (cancelled || activeSocket.current !== socket || activeUuid.current !== uuid) {
                     socket.close();
+
                     return;
                 }
 
@@ -186,10 +204,10 @@ export default function WebsocketHandler() {
     }, [createSocket, node, setConnectionState, setInstance, setReconnecting, uuid]);
 
     return reconnecting ? (
-        <div className={'bg-destructive py-2'}>
-            <ContentContainer className={'flex items-center justify-center'}>
-                <Spinner size={'small'} />
-                <p className={'ml-2 text-sm text-destructive-foreground'}>
+        <div className='bg-destructive py-2'>
+            <ContentContainer className='flex items-center justify-center'>
+                <Spinner size='small' />
+                <p className='ml-2 text-sm text-destructive-foreground'>
                     We&apos;re having some trouble connecting to your server, please wait...
                 </p>
             </ContentContainer>

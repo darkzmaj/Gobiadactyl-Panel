@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Pterodactyl\Services\Extensions;
 
+use Pterodactyl\Actions\Settings\ReplaceBrandLogo;
+use Pterodactyl\Models\User;
+use Pterodactyl\Services\Themes\ThemeDefinition;
+use Pterodactyl\Services\Themes\ThemeRepository;
+
 /**
  * The parsed, validated extension.json of a single extension package.
  */
@@ -13,25 +18,34 @@ class ExtensionManifest
 
     public const string UI_ENTRY = 'dist/client.js';
 
-    public const array COMPONENT_NAMES = [
-        'dashboard.page',
-        'dashboard.serverCard',
-        'server.files.details',
-        'server.files.editor',
-        'server.files.manager',
-    ];
+    public const array TYPES = ['extension', 'theme'];
 
-    /** Lowercase slug: starts with a letter, then letters/digits/hyphens, max 48. */
-    public const string ID_REGEX = '/^[a-z][a-z0-9-]{0,47}$/';
+    /** A view name such as `server.power` or `page.server.backups`. */
+    public const string VIEW_NAME_REGEX = '/^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)+$/D';
+
+    /** Lowercase slug: starts with a letter, then letters/digits/hyphens, max 48, with no trailing newline. */
+    public const string ID_REGEX = '/^[a-z][a-z0-9-]{0,47}$/D';
 
     /** A lucide icon name (kebab-case), such as "life-buoy" or "grid-2x2". */
-    public const string ICON_REGEX = '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/';
+    public const string ICON_REGEX = '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D';
 
-    /** Identifiers that would collide with core routes/assets. */
-    public const array RESERVED_IDS = ['pterodactyl', 'panel', 'core'];
+    public const string ICON_FILE_REGEX = '/^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:png|jpe?g|webp)$/D';
+
+    /** Identifiers that would collide with core routes/assets, the built-in theme, or core's own setting files. */
+    public const array RESERVED_IDS = ['pterodactyl', 'panel', 'core', ThemeRepository::CLASSIC, User::AVATAR_FILES, ReplaceBrandLogo::FILES];
+
+    /** A PSR-4 prefix under `autoload`: PHP identifiers, each followed by a backslash. */
+    public const string NAMESPACE_REGEX = '/^(?:[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*\\\\)+$/D';
+
+    /**
+     * Namespaces an extension can never autoload into, on top of every PSR-4 prefix the
+     * panel's own Composer autoloader maps. Prefixes claimed by other extensions are
+     * compared when an extension is enabled.
+     */
+    public const array RESERVED_NAMESPACES = ['Pterodactyl\\', 'Illuminate\\', 'Laravel\\', 'Symfony\\'];
 
     /** Lowercase slug a top-level URL prefix claimed under `routes.root` must match. */
-    public const string ROOT_PREFIX_REGEX = '/^[a-z][a-z0-9-]{0,47}$/';
+    public const string ROOT_PREFIX_REGEX = '/^[a-z][a-z0-9-]{0,47}$/D';
 
     /**
      * Top-level URL segments an extension can never claim: the SPA's own client-side
@@ -81,8 +95,8 @@ class ExtensionManifest
         public readonly string $uiMode,
         /** @var list<ExtensionScreenDefinition> */
         public readonly array $screens,
-        /** @var list<string> */
-        public readonly array $components,
+        /** @var list<string> view names the bundle overrides, declared under `ui.views` */
+        public readonly array $views,
         /** @var array<'panel'|'sdk'|'php', string> */
         public readonly array $requirements,
         /** @var array<string, string> */
@@ -91,6 +105,10 @@ class ExtensionManifest
         public readonly array $rootPrefixes = [],
         /** The Tailwind prefix this extension builds its utilities and theme variables with. */
         public readonly ?string $uiPrefix = null,
+        public readonly ?string $icon = null,
+        /** @var 'extension'|'theme' */
+        public readonly string $type = 'extension',
+        public readonly ?ThemeDefinition $theme = null,
     ) {}
 
     /**
@@ -117,12 +135,27 @@ class ExtensionManifest
             uiEntry: $uiEntry,
             uiMode: $uiMode,
             screens: $data['ui']['screens'] ?? [],
-            components: $data['ui']['components'] ?? [],
+            views: $data['ui']['views'] ?? [],
             requirements: array_intersect_key($data['requires'] ?? [], ['panel' => true, 'sdk' => true, 'php' => true]),
             requiredExtensions: $data['requires']['extensions'] ?? [],
             rootPrefixes: $data['routes']['root'] ?? [],
             uiPrefix: $data['ui']['prefix'] ?? null,
+            icon: is_string($data['icon'] ?? null) ? $data['icon'] : null,
+            type: $data['type'] ?? 'extension',
+            theme: ($data['type'] ?? null) === 'theme' ? ThemeDefinition::fromValidatedData($data['theme'] ?? []) : null,
         );
+    }
+
+    /**
+     * Whether two PSR-4 prefixes can serve the same class: one equals or contains the
+     * other. PHP class names are case-insensitive, so the comparison is too.
+     */
+    public static function namespacesOverlap(string $first, string $second): bool
+    {
+        $first = mb_strtolower($first);
+        $second = mb_strtolower($second);
+
+        return str_starts_with($first, $second) || str_starts_with($second, $first);
     }
 
     /** Whether a Tailwind prefix is well formed and not reserved; uniqueness is compared when an extension is enabled. */
@@ -156,6 +189,43 @@ class ExtensionManifest
     public function hasUi(): bool
     {
         return $this->uiEntry !== null;
+    }
+
+    /** @phpstan-assert-if-true !null $this->theme */
+    public function isTheme(): bool
+    {
+        return $this->theme instanceof ThemeDefinition;
+    }
+
+    /** Whether the package ships a browser build to publish: a bundle, a theme stylesheet or both. */
+    public function hasAssets(): bool
+    {
+        return $this->hasUi() || $this->theme?->stylesheet !== null;
+    }
+
+    /**
+     * The extensions this one needs enabled: its `requires.extensions`, and for a theme the
+     * theme it extends unless that is the built-in classic theme.
+     *
+     * @return array<string, string> id => version constraint
+     */
+    public function dependencies(): array
+    {
+        $parent = $this->theme?->extends;
+
+        return $parent === null || $parent === ThemeRepository::CLASSIC
+            ? $this->requiredExtensions
+            : $this->requiredExtensions + [$parent => '*'];
+    }
+
+    public function iconName(): ?string
+    {
+        return $this->icon !== null && preg_match(self::ICON_REGEX, $this->icon) === 1 ? $this->icon : null;
+    }
+
+    public function iconFile(): ?string
+    {
+        return $this->icon !== null && preg_match(self::ICON_FILE_REGEX, $this->icon) === 1 ? $this->icon : null;
     }
 
     public function path(string ...$parts): string

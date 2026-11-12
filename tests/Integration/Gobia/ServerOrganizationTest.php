@@ -51,14 +51,18 @@ test('all, you and other show exactly the servers a user can open', function ():
 });
 
 test('an administrator sees every instance: theirs under You, the rest under Other', function (): void {
+    // Other suites may leave servers behind; an administrator sees those too, so the checks count from what was there.
+    $existing = Server::query()->count();
     $admin = User::factory()->create(['root_admin' => true]);
     ownedBy(User::factory()->create(), 'Someone elses');
     ownedBy($admin, 'Admin owned');
     $this->actingAs($admin);
-    expect(names($this->getJson(BASE.'/servers')))->toBe(['Admin owned', 'Someone elses']);
+    expect(names($this->getJson(BASE.'/servers?q=Admin owned')))->toBe(['Admin owned']);
+    expect(names($this->getJson(BASE.'/servers?q=Someone elses')))->toBe(['Someone elses']);
     expect(names($this->getJson(BASE.'/servers?view=you')))->toBe(['Admin owned']);
-    expect(names($this->getJson(BASE.'/servers?view=other')))->toBe(['Someone elses']);
-    expect($this->getJson(BASE.'/servers')->json('meta.counts'))->toBe(['all' => 2, 'you' => 1, 'other' => 1]);
+    expect(names($this->getJson(BASE.'/servers?view=other&q=Someone elses')))->toBe(['Someone elses']);
+    expect(names($this->getJson(BASE.'/servers?view=other&q=Admin owned')))->toBe([]);
+    expect($this->getJson(BASE.'/servers')->json('meta.counts'))->toBe(['all' => $existing + 2, 'you' => 1, 'other' => $existing + 1]);
     // A person who is not an administrator still sees only what they own or were invited to.
     expect(names($this->actingAs(User::factory()->create())->getJson(BASE.'/servers')))->toBe([]);
 });

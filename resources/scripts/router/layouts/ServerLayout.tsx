@@ -1,73 +1,52 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Outlet, useLocation, useParams } from '@tanstack/react-router';
 import { useServerQuery } from '@/api/server/queries';
+import type { Server } from '@/api/server/types';
 import { useServerStore } from '@/state/server';
 import { ServerContext } from '@/state/server/context';
 import { httpErrorToHuman } from '@/api/http';
-import { SidebarContent } from '@/gobia/shell/ShellContext';
-import { ServerSidebar } from '@/gobia/shell/Sidebars';
 import Spinner from '@/components/elements/Spinner';
 import { ServerError } from '@/components/elements/ScreenBlock';
 import InstallListener from '@/components/server/InstallListener';
+import StatsListener from '@/components/server/StatsListener';
 import TransferListener from '@/components/server/TransferListener';
 import WebsocketHandler from '@/components/server/WebsocketHandler';
-import ConflictStateRenderer from '@/components/server/ConflictStateRenderer';
 import { useIsRenderedRoute } from '@/router/renderedRoute';
 import { useCurrentUser } from '@/api/account/queries';
+import { View } from '@/views/View';
 
-const ServerConsoleContainer = React.lazy(() => import('@/components/server/console/ServerConsoleContainer'));
-
-function ServerLayoutInner() {
-    const { id } = useParams({ from: '/authenticated/server/$id' });
+/**
+ * The children of `layout.server`: the server's listeners, its console and the current page, or
+ * the conflict notice instead of both. The engine owns them, so a theme's layout only places them in <Main>.
+ */
+function ServerContent({ id, server }: { id: string; server: Server }) {
     const location = useLocation();
-
     const rootAdmin = useCurrentUser().rootAdmin;
-    const { data, error } = useServerQuery(id);
-
-    const server = data;
+    const { identifier } = server.attributes;
     const inConflictState =
-        !!server &&
-        (server.attributes.status !== null ||
-            server.attributes.is_transferring ||
-            server.attributes.is_node_under_maintenance);
-    const clearServerState = useServerStore((state) => state.clearServerState);
-
-    const to = (segment: string) => `/server/${id}${segment ? `/${segment}` : ''}`;
+        server.attributes.status !== null ||
+        server.attributes.is_transferring ||
+        server.attributes.is_node_under_maintenance;
 
     // The console stays mounted and is shown or hidden here, while every other page comes
     // from <Outlet />. Both have to switch in the same render: following the location
     // showed the console above the page being left, and hid it before the next one arrived.
-    const isConsole = useIsRenderedRoute(to(''));
-
-    useEffect(() => () => clearServerState(), [clearServerState]);
-
-    if (!server) {
-        return error ? <ServerError message={httpErrorToHuman(error)} /> : <Spinner size={'large'} centered />;
-    }
+    const isConsole = useIsRenderedRoute(`/server/${id}`);
 
     return (
         <>
-            <SidebarContent>
-                <ServerSidebar
-                    id={id}
-                    name={server.attributes.name}
-                    node={server.attributes.node}
-                    internalId={server.attributes.internal_id}
-                    server={server}
-                />
-            </SidebarContent>
             <InstallListener />
             <TransferListener />
             <WebsocketHandler />
-            {inConflictState &&
-            (!rootAdmin || (rootAdmin && !location.pathname.endsWith(`/server/${server.attributes.identifier}`))) ? (
-                <ConflictStateRenderer />
+            <StatsListener />
+            {inConflictState && (!rootAdmin || !location.pathname.endsWith(`/server/${identifier}`)) ? (
+                <View name='server.conflict' />
             ) : (
                 <>
                     {/* Stays mounted while hidden so the terminal survives tab switches. */}
                     <div className={isConsole ? undefined : 'hidden'}>
                         <Spinner.Suspense>
-                            <ServerConsoleContainer active={isConsole} />
+                            <View name='page.server.console' active={isConsole} />
                         </Spinner.Suspense>
                     </div>
                     <Outlet />
@@ -77,12 +56,30 @@ function ServerLayoutInner() {
     );
 }
 
+function ServerArea() {
+    const { id } = useParams({ from: '/authenticated/server/$id' });
+    const { data: server, error } = useServerQuery(id);
+    const clearServerState = useServerStore((state) => state.clearServerState);
+
+    useEffect(() => () => clearServerState(), [clearServerState]);
+
+    if (!server) {
+        return error ? <ServerError message={httpErrorToHuman(error)} /> : <Spinner size='large' centered />;
+    }
+
+    return (
+        <View name='layout.server'>
+            <ServerContent id={id} server={server} />
+        </View>
+    );
+}
+
 export default function ServerLayout() {
     const { id } = useParams({ from: '/authenticated/server/$id' });
 
     return (
         <ServerContext.Provider key={id}>
-            <ServerLayoutInner />
+            <ServerArea />
         </ServerContext.Provider>
     );
 }

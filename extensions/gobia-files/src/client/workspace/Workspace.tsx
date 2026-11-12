@@ -1,4 +1,4 @@
-import { Button, Dialog, toast, useCurrentServer, usePanelNavigate, type ReplacementProps } from '@pterodactyl/sdk';
+import { Button, Dialog, toast, useCurrentServer, usePanelNavigate, type ViewProps } from '@pterodactyl/sdk';
 import { Columns2, Menu, Rows2, SquareSplitVertical, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -192,7 +192,7 @@ function SecondPane({
     );
 }
 
-export default function Workspace({ model }: ReplacementProps<'server.files.manager'>) {
+export default function Workspace({ model }: ViewProps<'server.files.manager'>) {
     const uuid = useCurrentServer((server) => server.attributes.uuid) ?? '';
     const navigate = usePanelNavigate();
     // The Panel has usually listed the root already; the explorer takes that listing instead of asking again.

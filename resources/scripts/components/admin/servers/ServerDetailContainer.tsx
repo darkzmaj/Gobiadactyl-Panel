@@ -9,9 +9,22 @@ import Icon from '@/components/elements/Icon';
 import SubNavigation from '@/components/elements/SubNavigation';
 import Spinner from '@/components/elements/Spinner';
 import { ServerError } from '@/components/elements/ScreenBlock';
-import ResourceExtensionTabs from '@/extensions/ResourceExtensionTabs';
 import { ExtensionResourceProvider, type ExtensionResourceContext } from '@/extensions/resourceContext';
 import Slot from '@/extensions/Slot';
+import { resourceNavigation, type ResourceTab } from '@/views/navigation';
+
+const aboutTab: ResourceTab = { id: 'about', label: 'About', to: '/panel/servers/$id', exact: true };
+const installedTabs: ResourceTab[] = [
+    { id: 'details', label: 'Details', to: '/panel/servers/$id/details' },
+    { id: 'build', label: 'Build', to: '/panel/servers/$id/build' },
+    { id: 'startup', label: 'Startup', to: '/panel/servers/$id/startup' },
+    { id: 'database', label: 'Database', to: '/panel/servers/$id/database' },
+    { id: 'mounts', label: 'Mounts', to: '/panel/servers/$id/mounts' },
+];
+const manageTabs: ResourceTab[] = [
+    { id: 'manage', label: 'Manage', to: '/panel/servers/$id/manage' },
+    { id: 'delete', label: 'Delete', to: '/panel/servers/$id/delete' },
+];
 
 export default function ServerDetailContainer() {
     const loadedServer = serverDetailRoute.useLoaderData();
@@ -29,12 +42,11 @@ export default function ServerDetailContainer() {
     }
 
     if (!server) {
-        return <Spinner size={'large'} centered />;
+        return <Spinner size='large' centered />;
     }
 
     const { attributes } = server;
-    const params = { id: attributes.id };
-    const isInstalled = attributes.container.installed === 1;
+    const tabs = [aboutTab, ...(attributes.container.installed === 1 ? installedTabs : []), ...manageTabs];
 
     return (
         <ExtensionResourceProvider.Provider value={resourceContext}>
@@ -43,61 +55,28 @@ export default function ServerDetailContainer() {
                 heading={attributes.name}
                 description={attributes.identifier}
             >
-                <div className={'mb-4 flex flex-wrap items-center gap-4'}>
+                <div className='mb-4 flex flex-wrap items-center gap-4'>
                     <Link
-                        to={'/panel/servers'}
-                        className={'inline-flex items-center text-sm text-muted-foreground hover:text-foreground'}
+                        to='/panel/servers'
+                        className='inline-flex items-center text-sm text-muted-foreground hover:text-foreground'
                     >
-                        <Icon icon={ArrowLeft} className={'mr-2'} />
+                        <Icon icon={ArrowLeft} className='mr-2' />
                         Back to Servers
                     </Link>
                     <Link
-                        to={'/server/$id'}
+                        to='/server/$id'
                         params={{ id: attributes.identifier }}
-                        className={'inline-flex items-center text-sm text-muted-foreground hover:text-foreground'}
+                        className='inline-flex items-center text-sm text-muted-foreground hover:text-foreground'
                     >
-                        <Icon icon={ExternalLink} className={'mr-2'} />
+                        <Icon icon={ExternalLink} className='mr-2' />
                         Open Client Area
                     </Link>
                 </div>
                 <Slot name='panel.servers.detail.actions' data={resourceContext} />
-                <SubNavigation className={'mb-6 rounded-md'}>
-                    <div>
-                        <Link
-                            to={'/panel/servers/$id'}
-                            params={params}
-                            activeOptions={{ exact: true, includeSearch: false }}
-                        >
-                            About
-                        </Link>
-                        {isInstalled && (
-                            <>
-                                <Link to={'/panel/servers/$id/details'} params={params}>
-                                    Details
-                                </Link>
-                                <Link to={'/panel/servers/$id/build'} params={params}>
-                                    Build
-                                </Link>
-                                <Link to={'/panel/servers/$id/startup'} params={params}>
-                                    Startup
-                                </Link>
-                                <Link to={'/panel/servers/$id/database'} params={params}>
-                                    Database
-                                </Link>
-                                <Link to={'/panel/servers/$id/mounts'} params={params}>
-                                    Mounts
-                                </Link>
-                            </>
-                        )}
-                        <Link to={'/panel/servers/$id/manage'} params={params}>
-                            Manage
-                        </Link>
-                        <Link to={'/panel/servers/$id/delete'} params={params}>
-                            Delete
-                        </Link>
-                        <ResourceExtensionTabs parent='admin.server' basePath={`/panel/servers/${attributes.id}`} />
-                    </div>
-                </SubNavigation>
+                <SubNavigation
+                    className='mb-6 rounded-sm'
+                    items={resourceNavigation('admin.server', { id: String(attributes.id) }, tabs)}
+                />
                 <Outlet />
             </AdminContentBlock>
         </ExtensionResourceProvider.Provider>

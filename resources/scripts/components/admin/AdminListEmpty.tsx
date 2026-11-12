@@ -2,7 +2,6 @@ import type * as React from 'react';
 import { X, type LucideIcon } from 'lucide-react';
 import { NewButton } from '@/components/elements/NewButton';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { emptyCompactClass } from '@/components/ui/styles';
 
 interface Props {
     icon: LucideIcon;
@@ -32,16 +31,16 @@ export default function AdminListEmpty({
     );
 
     return (
-        <Empty className={emptyCompactClass}>
+        <Empty size='compact'>
             <EmptyHeader>
-                <EmptyMedia variant={'icon'}>
+                <EmptyMedia variant='icon'>
                     <ResourceIcon />
                 </EmptyMedia>
                 <EmptyTitle>{filter ? `No matching ${noun}` : `No ${noun} yet`}</EmptyTitle>
                 <EmptyDescription>
                     {filter ? (
                         <>
-                            No {noun} match <span className={'font-medium text-foreground'}>{filter}</span>.
+                            No {noun} match <span className='font-medium text-foreground'>{filter}</span>.
                         </>
                     ) : (
                         description

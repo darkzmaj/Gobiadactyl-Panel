@@ -8,11 +8,22 @@ import type { AdminDatabaseHostListSort } from '@/api/admin/database-hosts/queri
 import type { AdminMountListSort } from '@/api/admin/mounts/queries';
 import type { ApiKeyListSort } from '@/api/admin/api-keys/queries';
 import type { AdminTagListSort } from '@/api/admin/tags/queries';
-import { isFiniteNumber, isString } from '@/lib/objects';
+import { parsePageSearch, searchText, type PageSearch, type RawSearch } from '@/router/pageSearch';
 
-export type PageSearch = {
-    page?: number;
-};
+export {
+    getPageSearch,
+    parseActivitySearch,
+    parseDashboardSearch,
+    parseEmailSearch,
+    parsePageSearch,
+    useActivitySearch,
+    useDashboardSearch,
+    usePageSearch,
+    type ActivitySearch,
+    type DashboardSearch,
+    type PageSearch,
+    type RawSearch,
+} from '@/router/pageSearch';
 
 export type AdminListSearch = PageSearch & {
     filter?: string;
@@ -43,77 +54,15 @@ type AdminListSort =
     | AdminTagListSort
     | ApiKeyListSort;
 
-export type ActivitySearch = PageSearch & {
-    event?: string;
-    user?: string;
-};
-
-export type DashboardSearch = PageSearch & {
-    type?: 'admin';
-};
-
-export interface RawSearch {
-    email?: string | number | boolean | null;
-    event?: string | number | boolean | null;
-    filter?: string | number | boolean | null;
-    page?: string | number | boolean | null;
-    sort?: string | number | boolean | null;
-    type?: string | number | boolean | null;
-    user?: string | number | boolean | null;
-}
-
-/** The URL text of a search value the router JSON-parsed. */
-const searchText = (value: RawSearch[keyof RawSearch]): string | undefined => {
-    if (isString(value)) return value.trim() || undefined;
-
-    return isFiniteNumber(value) || value === true || value === false ? String(value) : undefined;
-};
-
-export const parsePageSearch = (search: RawSearch): PageSearch => {
-    const page = isString(search.page) || isFiniteNumber(search.page) ? Number(search.page) : Number.NaN;
-
-    return Number.isSafeInteger(page) && page >= 1 ? { page } : {};
-};
-
-export const getPageSearch = (page: number): PageSearch => (page > 1 ? { page } : {});
-
-export const usePageSearch = () => parsePageSearch(useSearch({ strict: false })).page ?? 1;
-
 export const parseAdminListSearch = (search: RawSearch): AdminListSearch => {
     const result: AdminListSearch = { ...parsePageSearch(search) };
     const filter = searchText(search.filter);
 
-    if (filter) result.filter = filter;
+    if (filter) {
+        result.filter = filter;
+    }
 
     return result;
-};
-
-const parseAdminServerSort = (value: RawSearch['sort']): AdminServerListSort | undefined => {
-    switch (value) {
-        case 'name':
-        case '-name':
-        case 'created_at':
-        case '-created_at':
-            return value;
-        default:
-            return undefined;
-    }
-};
-
-const parseAdminNodeSort = (value: RawSearch['sort']): AdminNodeListSort | undefined => {
-    switch (value) {
-        case 'name':
-        case '-name':
-        case 'memory':
-        case '-memory':
-        case 'disk':
-        case '-disk':
-        case 'created_at':
-        case '-created_at':
-            return value;
-        default:
-            return undefined;
-    }
 };
 
 const parseAllowedSort = <TSort extends string>(value: RawSearch['sort'], allowed: readonly TSort[]) =>
@@ -125,26 +74,28 @@ const parseSortableAdminListSearch = <TSort extends string>(
 ): AdminListSearch & { sort?: TSort } => {
     const result: AdminListSearch & { sort?: TSort } = { ...parseAdminListSearch(search) };
     const sort = parseAllowedSort(search.sort, allowed);
-    if (sort) result.sort = sort;
+
+    if (sort) {
+        result.sort = sort;
+    }
 
     return result;
 };
 
-export const parseServerListSearch = (search: RawSearch): ServerListSearch => {
-    const result: ServerListSearch = { ...parseAdminListSearch(search) };
-    const sort = parseAdminServerSort(search.sort);
-    if (sort) result.sort = sort;
+export const parseServerListSearch = (search: RawSearch): ServerListSearch =>
+    parseSortableAdminListSearch<AdminServerListSort>(search, ['name', '-name', 'created_at', '-created_at']);
 
-    return result;
-};
-
-export const parseNodeListSearch = (search: RawSearch): NodeListSearch => {
-    const result: NodeListSearch = { ...parseAdminListSearch(search) };
-    const sort = parseAdminNodeSort(search.sort);
-    if (sort) result.sort = sort;
-
-    return result;
-};
+export const parseNodeListSearch = (search: RawSearch): NodeListSearch =>
+    parseSortableAdminListSearch<AdminNodeListSort>(search, [
+        'name',
+        '-name',
+        'memory',
+        '-memory',
+        'disk',
+        '-disk',
+        'created_at',
+        '-created_at',
+    ]);
 
 export const parseUserListSearch = (search: RawSearch): UserListSearch =>
     parseSortableAdminListSearch(search, ['email', '-email', 'username', '-username', 'created_at', '-created_at']);
@@ -163,42 +114,6 @@ export const parseApiKeyListSearch = (search: RawSearch): ApiKeyListSearch =>
 
 export const parseTagListSearch = (search: RawSearch): TagListSearch =>
     parseSortableAdminListSearch(search, ['name', '-name', 'slug', '-slug']);
-
-export const parseActivitySearch = (search: RawSearch): ActivitySearch => {
-    const result: ActivitySearch = { ...parsePageSearch(search) };
-    const event = searchText(search.event);
-    const user = searchText(search.user);
-
-    if (event) result.event = event;
-    if (user) result.user = user;
-
-    return result;
-};
-
-export const parseDashboardSearch = (search: RawSearch): DashboardSearch => {
-    const result: DashboardSearch = { ...parsePageSearch(search) };
-    if (search.type === 'admin') result.type = 'admin';
-
-    return result;
-};
-
-export const parseEmailSearch = (search: RawSearch): { email?: string } => {
-    const email = searchText(search.email);
-
-    return email ? { email } : {};
-};
-
-export const useDashboardSearch = () => {
-    const { page = 1, type } = parseDashboardSearch(useSearch({ strict: false }));
-
-    return { page, type };
-};
-
-export const useActivitySearch = () => {
-    const { page = 1, event, user } = parseActivitySearch(useSearch({ strict: false }));
-
-    return { page, event, user };
-};
 
 interface SortableAdminListSearchUpdate<TSort extends string> {
     page?: number;
@@ -219,11 +134,19 @@ const useSortableAdminListSearch = <TSort extends AdminListSort>(
             const nextSort = next.sort === undefined ? sort : (next.sort ?? undefined);
             const search: AdminListSearch & { sort?: TSort } = {};
 
-            if (nextPage > 1) search.page = nextPage;
-            if (nextFilter.length > 0) search.filter = nextFilter;
-            if (nextSort) search.sort = nextSort;
+            if (nextPage > 1) {
+                search.page = nextPage;
+            }
 
-            navigate({
+            if (nextFilter.length > 0) {
+                search.filter = nextFilter;
+            }
+
+            if (nextSort) {
+                search.sort = nextSort;
+            }
+
+            void navigate({
                 to: '.',
                 search,
                 replace: true,

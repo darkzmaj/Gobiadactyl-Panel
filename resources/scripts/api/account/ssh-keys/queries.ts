@@ -18,9 +18,7 @@ import { notifyHttpError } from '@/plugins/notifications';
 
 export type SSHKey = ClientSshKeyResource;
 
-export const accountSshKeysQueryOptions = () => ({
-    ...clientListSshKeysOptions(),
-});
+export const accountSshKeysQueryOptions = () => clientListSshKeysOptions();
 
 export const useSSHKeys = () => useQuery(accountSshKeysQueryOptions());
 
@@ -65,11 +63,13 @@ export const useDeleteSSHKey = () => {
             if (queryClient.isMutating({ mutationKey: clientDeleteSshKeyMutation().mutationKey }) === 1) {
                 return queryClient.invalidateQueries({ queryKey });
             }
+
             return Promise.resolve();
         },
         onError: (error, _variables, context) => {
             if (context?.removed) {
                 const removed = context.removed;
+
                 queryClient.setQueryData<ClientListSshKeysResponse>(queryKey, (current) =>
                     upsertListItem(
                         current,
@@ -78,6 +78,7 @@ export const useDeleteSSHKey = () => {
                     )
                 );
             }
+
             notifyHttpError(error, 'Unable to delete SSH key');
         },
     });

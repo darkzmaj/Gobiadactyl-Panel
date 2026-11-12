@@ -1,114 +1,70 @@
 # Gobia core patches
 
-Every modification Gobia makes to official Pterodactyl files outside Gobia owned paths (`extensions/gobia-*`, `themes/gobia`, `tools/audit-probe`,
+Every modification Gobia makes to official Pterodactyl files outside Gobia owned paths (`extensions/gobia-*`, `public/assets/gobia`, `tools/audit-probe`,
 `scripts/gobia`, `docs/gobia-*`, `tests/Integration/Gobia`, `tests/Integration/Extensions/AuditProbeTest.php`, `CLAUDE.md`, `MAJCEK_HANDOFF.md`,
-`vitest.gobia.config.ts`, `.github/workflows/gobia-ci.yaml`). Goal: keep this list tiny. Baseline: upstream `2.0-develop` pinned at `240aaf62ea53b1d6956a643a872f44d2f5956031`.
+`vitest.gobia.config.ts`, `.oxlintrc.gobia.json`, `.github/workflows/gobia-ci.yaml`). Goal: keep this list tiny.
+
+Baseline: upstream `2.0-develop` at `3d93cd07d605529a399438d32aa7a08a3e038d02` (synced 2026-11-12; the previous baseline was `240aaf62ea53b1d6956a643a872f44d2f5956031`).
+`git diff 3d93cd07d -- app bootstrap config routes resources database` lists every core change below; nothing else may appear in it.
+
+## The Gobia theme (2026-11-12 sync)
+
+Upstream 2.0 now has a theme platform: a theme is an extension of `"type": "theme"` with tokens and CSS, skins for the UI kit, and **views** for layouts and
+pages (`packages/sdk/THEMES.md`). That was the removal path of most visual patches, so the Gobia look is now `extensions/gobia-theme`, activated with
+`php artisan p:theme:activate gobia-theme`, and the core files it used to patch are upstream's again.
+
+| In `extensions/gobia-theme` | Replaces the former core patch |
+| --- | --- |
+| `src/theme.css` (tokens, fonts) and `src/gobia.css` (the gb-* component layer) | `themes/gobia/tokens.css` and `p:theme:apply gobia`, the `resources/gobia/gobia.css` import in `resources/scripts/index.tsx` |
+| `src/skins.ts` (sentence case and medium corners for buttons, labels, card titles; no page footer) | `components/elements/Button.tsx`, `Label.tsx`, `PageContentBlock.tsx` (footer), `form/controls.tsx`, `ui/*`, `typography.ts`, `ContentBox.tsx`, `TitledGreyBox.tsx` and the other primitive class patches |
+| `src/views/Shell.tsx` (`layout.app`: top bar, area sidebar with the fixed admin groups, user menu, footer), `ServerCard.tsx` (switcher and status dots), `UserMenu.tsx` | `router/layouts/AuthenticatedLayout.tsx`, `AdminLayout.tsx`, `ServerLayout.tsx`, `resources/scripts/gobia/shell/*`, the admin navigation entries and labels removed in `router/routeTree.ts` |
+| `src/views/AccountLayout.tsx` (`layout.account`), `AccountSecurity.tsx` (`page.account.overview`) | `router/layouts/AccountLayout.tsx`, `dashboard/AccountOverviewContainer.tsx` |
+| `src/views/auth/AuthLayout.tsx` (`layout.auth`), `auth/pages.tsx` (`page.auth.*`) | `router/layouts/AuthLayout.tsx`, `components/auth/*Container.tsx`, `LoginFormContainer.tsx` |
+| `src/views/SettingsTabs.tsx` (over `page.server.settings` and `page.server.startup`) | `components/server/settings/SettingsContainer.tsx`, `ServerSettingsTabs.tsx`, `startup/StartupContainer.tsx` |
+| The scheme switch (`model.setScheme`, the `pterodactyl_scheme` cookie) | the inline scheme script in `resources/views/templates/wrapper.blade.php` and gobia-core's class toggling |
+
+Upstream also replaced "replaceable components" with view overrides, so the `dashboard.page` patch (componentTypes, manifest name lists, testing
+fixtures) is gone: `gobia-core` overrides `page.dashboard`, `gobia-files` overrides `server.files.manager` and `server.files.editor` (`ui.views` and
+`views.override`). The Gobia brand images moved from `themes/gobia/assets/img` (published by the old theme command) to the tracked `public/assets/gobia/img`.
 
 ## Permanent patches
 
 | File | Purpose | Why the extension API cannot support it | Upstream conflict risk | Tests | Removal path |
 | --- | --- | --- | --- | --- | --- |
 | `.gitignore` | Track `extensions/gobia-*` (upstream ignores the whole `extensions/` directory as local checkouts) | Repository layout, not an extension concern | Low (two lines) | CI builds from tracked files | Move Gobia extensions to a separate repository and install them in the release build |
-| `.github/workflows/*` (upstream `ci.yaml`, `docker.yaml`, `release.yaml`, `staging.yaml`, `build.yaml`, `react-doctor.yml` deleted; `gobia-ci.yaml` added) | Upstream workflows publish to `ghcr.io/pterodactyl/panel` and dispatch staging; they must never run from the Gobia repository | CI is repository configuration | None (deleted files) | n/a | Keep deleted |
-| `resources/scripts/extensions/componentTypes.ts`, `resources/scripts/components/dashboard/DashboardContainer.tsx`, `resources/scripts/sdk/testing.tsx`, `app/Services/Extensions/ExtensionManifest.php`, `packages/sdk/manifest.schema.json`, `packages/sdk/README.md`, `tests/Unit/Services/Extensions/ExtensionManifestTest.php`, generated `packages/sdk/types/**` | New replaceable component `dashboard.page` (a whole page replacement, about 30 hand written lines plus generated types) | The dashboard list needs Gobia filters (All, You, Other), categories, a persisted per user order and its own data source. Slots only add content beside the native list, and `dashboard.serverCard` only restyles one row of a fixed, paginated native list. A replacement that owns the page also stops the native query from running | Medium: `componentTypes.ts`, `testing.tsx` and the manifest name lists change whenever upstream adds a replaceable component. Each hunk is a one line list entry, so conflicts are small but real | `resources/scripts/extensions/dashboardPage.spec.tsx` (3 tests), `ExtensionManifestTest` | Delete the patch if upstream adds an equivalent point (for example a dashboard list slot with replace semantics); otherwise re-apply with the sync checklist in `MAJCEK_HANDOFF.md` |
+| `.github/workflows/*` (upstream `ci.yaml`, `docker.yaml`, `release.yaml`, `staging.yaml`, `build.yaml`, `react-doctor.yml`, and since the 2026-11-12 sync `install.yaml`, `docker-refresh.yaml`, `.github/dependabot.yaml` and `.github/scripts/archive.sh` deleted; `gobia-ci.yaml` added) | Upstream workflows publish to `ghcr.io/pterodactyl/panel` and dispatch staging; they must never run from the Gobia repository. `gobia-ci.yaml` runs the same checks as upstream's `ci.yaml` (lint job, pinned actions) plus the Gobia ones | CI is repository configuration | None (deleted files); re-check `ci.yaml` on every sync | n/a | Keep deleted |
+| `router/routeTree.ts`, `sdk/navigation.tsx` (path types) | Server `users` and `users/new` redirect to Account, Access; `network` opens `ports` and `startup` opens `settings/startup` in place (`redirectServerTo`); Settings sends a startup-only person to Startup | Routes and their addresses are core | Medium (the server route list changes upstream) | `scripts/gobia/nav-flows.mjs`, `access:` flows | Keep |
+| `components/admin/servers/ServersContainer.tsx` | Admin "Servers" is "Instances" (page heading) | Admin pages are not views | Low (two strings) | none | Keep |
+| `components/admin/AdminTabs.tsx` (new), `AdminContentBlock.tsx`, `settings/SettingsContainer.tsx`, `settings/SettingsTabButton.tsx` (deleted) | Tabs that merge Nodes and Instances, Eggs and Mounts and the Settings sections (upstream's logo card kept in General); the heading comes from the tab group. Without a router (component specs) the block falls back to the plain upstream heading | Admin pages are core routes, not views | Low to medium | `admin:` flows, egg and theme specs | Keep |
+| `components/admin/overview/OverviewContainer.tsx`, `RecentActivity.tsx` (new) | Gobia overview: statistics from the gobia-core slot, the admin activity log (upstream's `activity.log` view) below; no stock version card or link cards (updates are Gobia releases) | The overview page is core | Low | `admin:` flow | Keep |
+| `components/server/WebsocketHandler.tsx`, `gobia/liveStats.ts` | One stats frame after the socket authenticates, and every `stats` event published as the `gobia:live-stats` window event for the theme's instance card | The server socket is core; the shell sits outside the server context | Low (two hunks) | `status:` flows | Upstream hook for socket events |
+| `router/router.tsx`, `gobia/PageSkeleton.tsx` | No root view transition, pending time 0, the page skeleton as the pending component | Router options are core | Low | browser comparison | An upstream router option for the pending component |
+| `app/Services/Extensions/ExtensionRepository.php` (`records()`, `clearErrors()`, `recordFailure()`) | The `extensions` table check is the failed select (SQLSTATE 42S02) instead of an `information_schema` query, and `clearErrors()` sends no query when the rows just read carry no error (on top of upstream's load phase rule). Boot queries per request: 3 before, 1 after (`docs/gobia-backend-performance.md`) | The extension loader is core | Low to medium | `tests/Unit/Services/Extensions`, `tests/Integration/Extensions`, `tests/Integration/Gobia` | Offer upstream |
+| `bootstrap/app.php` (groups `admin-api`, `application-api`) | The administrator and application checks run before route model binding, so a caller without access cannot tell existing ids from missing ones (`docs/gobia-security-review.md`, finding 6) | Middleware groups are core | Low: two lines | `tests/Integration/Gobia/AdminEnumerationTest.php` | Offer upstream |
+| `package.json`, `package-lock.json`, `packages/sdk/types/**` (regenerated) | `dev:gobia` and `test:gobia:browser` scripts, dev dependencies of the browser checks (`playwright-core`, `axe-core`, `pixelmatch`, `pngjs`) | Tooling | Low | `npm run sdk:check` | Keep |
+| `.gitattributes` (new) | `*.sh` and `deploy/linux/*` keep LF on a Windows checkout | Repository configuration | None | n/a | Keep |
+| `deploy/linux/gobia-update-helper`, `scripts/release/*`, `.github/workflows/gobia-release.yaml` (new) | Privileged update helper, release packaging and signing | Deployment tooling | None | `tests/Integration/Gobia/UpdaterTest.php`, `docs/gobia-updater-e2e.md` | Keep |
+| `services/mock-wings/server.mjs` | Pushes stats every second, dev only `mock-stats` endpoint | Development tool, never shipped | None | `status:` flows | Keep |
 
-## Temporary patches (identical to upstream pull requests, remove after the sync that contains the merge)
+## Changed by the 2026-11-12 sync (check when touching these areas)
 
-Reviewed in the final pass: all five pull requests below are now merged upstream (7250 and 7251 on 2026-10-06, 7249, 7252 and 7253 on 2026-10-07). The hunks stay until the next upstream sync, which deletes them; they are not needed afterwards.
-
-These make Gobia CI green on clean upstream. They are the same hunks as the pull requests, so merging upstream later resolves cleanly.
-
-| File | Upstream PR | Problem fixed |
-| --- | --- | --- |
-| `tests/Integration/Console/SchedulerTest.php` | https://github.com/pterodactyl/panel/pull/7249 | Telemetry test counted requests for leftover nodes from other tests |
-| `app/Http/Requests/Api/Admin/Extensions/InstallExtensionRequest.php`, `app/Services/Extensions/ExtensionPackageLocator.php` | https://github.com/pterodactyl/panel/pull/7250 | Pint formatting fails upstream |
-| `app/Extensions/Illuminate/Auth/Passwords/PasswordBroker.php`, `PasswordBrokerManager.php`, `app/Http/Controllers/Api/Client/Servers/FileController.php` | https://github.com/pterodactyl/panel/pull/7251 | Rector changes reported under PHP 8.4 |
-| `scripts/generate-extension-openapi.php` | https://github.com/pterodactyl/panel/pull/7252 | `mb_trim()` is undefined on PHP 8.3 |
-| `packages/sdk/vite.mjs`, `packages/sdk/vite.spec.ts` | https://github.com/pterodactyl/panel/pull/7253 | Extension builds preload shared lazy chunks from the site root |
-
-## Visual parity patches (Gobia shell and primitives)
-
-These are presentation patches. The extension API can replace five components (`dashboard.page`, `dashboard.serverCard`, `server.files.*`) and add slots, but it cannot replace the application shell, the auth screens or the shared UI primitives, so exact 1.x parity needs these edits. All new Gobia code lives in `resources/scripts/gobia/**` (not an upstream path, no conflicts); the files below are the only upstream files touched.
-
-| File | Purpose | Why the extension API cannot do it | Upstream conflict risk | Tests | Removal path |
-| --- | --- | --- | --- | --- | --- |
-| `resources/scripts/index.tsx` | Imports `../gobia/gobia.css` (kept outside `resources/scripts` so the upstream custom CSS token spec, which allows only `var()` colours there, does not scan the Gobia component layer) | No stylesheet slot loads before first paint for the shell | Low (one import) | Vite build | Move the import into a theme CSS file if upstream themes may ship component CSS |
-| `router/layouts/AuthenticatedLayout.tsx`, `AdminLayout.tsx`, `AccountLayout.tsx`, `AuthLayout.tsx`, `ServerLayout.tsx` | Replace the horizontal navigation, sub navigation and auth wrapper with the Gobia shell, sidebar and local menu | Layouts are not replaceable components | Medium (layout files change upstream) | Browser comparison with 1.x, `gobia-core` vitest | Upstream "layout" replacement point |
-| `components/NavigationBar.tsx` | No longer rendered (kept so upstream merges stay trivial) | Same | Low | none | Delete after the next upstream sync |
-| `components/auth/LoginFormContainer.tsx` | Gobia sign in screen with the interactive preview | Auth screens have no slot that replaces the frame | Medium | Browser comparison | Upstream auth frame slot |
-| `components/elements/PageContentBlock.tsx`, `ServerContentBlock.tsx`, `PageHeading.tsx` | Page wrapper without the Pterodactyl footer, 1.x page head and subtitles | Shared wrapper, not a replaceable component | Medium | Browser comparison | Upstream page wrapper slot |
-| `components/elements/Button.tsx`, `Label.tsx`, `components/form/controls.tsx`, `components/ui/Select.tsx`, `Checkbox.tsx`, `typography.ts` | Gobia control sizes, radius, focus ring | Primitives are not replaceable | Medium (class strings) | Existing component specs | Tokens only, if upstream exposes control tokens |
-| `components/elements/dialog/Dialog.tsx`, `dropdown/DropdownMenu.tsx`, `table/DataTable.tsx`, `AppToaster.tsx`, `alert/Alert.tsx`, `ui/empty.tsx`, `ContentBox.tsx`, `TitledGreyBox.tsx`, `GreyRowBox.tsx` | Gobia modal, menu, table, toast, alert and card look | Same | Medium | Existing component specs | Same |
-| `components/admin/overview/OverviewContainer.tsx` | Gobia overview heading; the stock version card, external links and navigation cards are removed (updates are Gobia releases) | Core page, the slots only add content | Low | Browser comparison | Keep |
-| `router/routeTree.ts`, `components/admin/servers/ServersContainer.tsx` | Admin "Servers" is "Instances" | Route metadata is core | Low (two strings) | none | Keep |
-| `components/server/console/ServerConsoleContainer.tsx` | Console draws its own header | Core page | Low | none | Keep |
-| `router/routeTree.ts` (server `users` and `users/new`) | The per server Users page is gone: both addresses redirect to `/account/access?server=<uuid>` (`&grant=1` for the add address) and the navigation entry is removed. The subuser API, models and permission checks are untouched; Account, Access (`gobia-core`) is the one place to share instances | Navigation entries and routes of core pages cannot be removed or redirected by an extension | Low (two route blocks, one nav entry) | `access: no Users entry...` browser flow, `AccessTest` | Keep; delete the redirect stubs once no bookmark needs them. The public slots `server.users.before`, `.after`, `.create.before`, `.create.after` are no longer mounted (`packages/sdk/slot-coverage.spec.ts` exempts them) |
-| `resources/views/templates/wrapper.blade.php` | Inline script that applies the stored colour scheme before first paint (no wrong theme flash) | The wrapper has no extension point for an inline head script | Low (one block) | `npm run test:gobia:browser` | Move into a theme or extension head tag if upstream supports inline scripts |
-| `packages/sdk/slot-coverage.spec.ts` | Lists the Gobia shell files as anchors of the navigation slots | Test file | Low (two lines) | itself | Remove with the shell patch |
-| `components/server/files/FileManagerContainer.tsx`, `components/server/settings/SettingsContainer.tsx` | No duplicate page head above the Gobia workspace; labelled SFTP fields (accessibility) | Core pages | Low | axe in `npm run test:gobia:browser` | Keep |
-| `components/auth/*Container.tsx`, `dashboard/AccountOverviewContainer.tsx` | Gobia copy and layout of the sign in screens and the Security page | Core pages | Low | Browser comparison | Keep |
-| `package.json`, `package-lock.json`, `packages/sdk/types/**` | `dev:gobia` and `test:gobia:browser` scripts, dev dependencies of the browser checks (`playwright-core`, `axe-core`, `pixelmatch`, `pngjs`), regenerated SDK declarations | Tooling | Low | `npm run sdk:check` | Keep |
-
-## Motion, loading and table patches (final frontend pass)
-
-| File | Purpose | Why the extension API cannot do it | Upstream conflict risk | Tests | Removal path |
-| --- | --- | --- | --- | --- | --- |
-| `resources/scripts/router/router.tsx` | No view transitions, pending time 0, `PageSkeleton` as the pending component | Router options are core | Low | `npm run test:gobia:browser` | Upstream router option for the pending component |
-| `resources/scripts/components/elements/Spinner.tsx` | A large centred spinner renders `PageSkeleton` | Shared element | Low | Browser comparison | Keep |
-| `resources/scripts/index.tsx`, `resources/scripts/router/view-transitions.css` (deleted), `packages/sdk/prefix.spec.ts` | View transition import and stylesheet removed (the shell stays still, only the content fades); the prefix spec no longer lists the deleted stylesheet | Entry file | Low | Browser comparison | Keep |
-| `resources/scripts/components/elements/table/DataTable.tsx` | The scroll container is `relative`, so visually hidden text in action buttons cannot widen the page on phones | Shared table | Low | responsive check at 390 and 430 px | Keep |
-| `resources/scripts/components/elements/AppToaster.tsx`, `components/Avatar.tsx` | Toast descriptions inherit the toast colour (Sonner's dark theme painted them light grey on the red error toast, contrast 1.9); the generated avatar is decorative (`aria-hidden`) | Shared elements | Low | axe in `npm run test:gobia:browser` | Keep |
-| `resources/scripts/gobia/shell/Sidebars.tsx` | Admin groups Dashboard, Network, Services, System in the 1.x order (new Gobia file, not an upstream path) | Sidebar is Gobia code | None | Browser comparison | None |
-
-Extension level changes that are not core patches: `gobia-files` replaces `server.files.manager` (workspace) and `server.files.editor` (redirect into the workspace); `gobia-templates` gained `GET /api/admin/extensions/gobia-templates/templates/{id}/revisions` and a nullable `created_by` column on its revision table; `gobia-core` gained view counts and search in the instance list API.
-
-## Review of the registry (final closure pass)
-
-Every permanent and visual patch above was re-read against the current extension API. None can move into an extension today: the shell, auth frame, shared primitives
-and router options are not replaceable components, and the one theme hook the shell needs (stored scheme before first paint) has no extension point. Two entries became
-smaller than they were: the view transition stylesheet is gone, and the files editor no longer needs any core file (it is an extension replacement of `server.files.editor`).
-Core edits made since: the loading skeleton (`gobia/PageSkeleton.tsx`, a busy indicator with the progressbar role so pages keep a single status region), the account
-activity, API credentials and SSH keys headings, card heading consistency in the location and node pages, and container based columns in the two account key tables. The dialog keeps Tab and Shift+Tab inside itself (`components/elements/dialog/Dialog.tsx`, already patched): the library's focus guards let focus reach the page behind in headless
-Chromium, found by the keyboard flow. `gobia/shell/GobiaShell.tsx` scrolls the current menu entry into view, `components/elements/AppToaster.tsx`, `components/Avatar.tsx` and `components/server/startup/StartupContainer.tsx` and `components/server/console/Console.tsx` fix contrast, alt text and missing label findings of axe (the terminal text colour was the page foreground, dark on the dark terminal in the light theme). All of these are presentation or accessibility only and are covered by the browser checks.
-
-## Admin navigation and footer (final cleanup)
-
-| File | Purpose | Why the extension API cannot do it | Upstream conflict risk | Tests | Removal path |
-| --- | --- | --- | --- | --- | --- |
-| `resources/scripts/components/admin/AdminTabs.tsx` (new), `AdminContentBlock.tsx`, `settings/SettingsContainer.tsx`, `settings/SettingsTabButton.tsx` (deleted) | Tabs that merge Nodes and Instances, Eggs and Mounts and the Settings sections; the shared heading comes from the tab group | Admin pages are core routes | Low to medium (AdminContentBlock is shared) | `admin:` browser flows, egg specs | Keep |
-| `router/routeTree.ts` | Navigation entries of activity, instances, mounts, tags, extensions and API keys removed (their routes and addresses are unchanged); labels "Nodes & Instances" and "Eggs & Mounts" | Nav metadata is core | Low | `routeTree.spec.ts`, browser flows | Keep |
-| `gobia/shell/Nav.tsx`, `Sidebars.tsx`, `GobiaFooter.tsx`, `resources/gobia/gobia.css` | Groups, highlight of merged entries, footer layout | Shell is Gobia code | None | browser flows | None |
-| `components/admin/overview/OverviewContainer.tsx`, `RecentActivity.tsx` (new) | Recent Activity below the statistics | The overview page is core; the statistics come from a slot | Low | `admin:` flow | Keep |
-
-## Live status dots, instance switcher and the Files workspace
-
-| File | Purpose | Why the extension API cannot do it | Upstream conflict risk | Tests | Removal path |
-| --- | --- | --- | --- | --- | --- |
-| `resources/scripts/components/server/WebsocketHandler.tsx` | Requests one stats frame after the socket authenticates and publishes every `stats` event to `gobia/liveStats.ts` (two small hunks), so the instance card shows live numbers on every server page | The shell and the server socket are core; slots cannot read socket events | Low | `status:` browser flows | Upstream hook for socket events |
-| `resources/scripts/gobia/shell/Sidebars.tsx`, new `gobia/shell/ServerSwitcher.tsx`, `gobia/StatusDots.tsx`, `gobia/statusLevels.ts`, `gobia/liveStats.ts` | The instance card is a searchable switcher that keeps the page; four stacked status dots | Sidebar is Gobia shell code | None (Gobia files) | `dual:` and `status:` browser flows | None |
-| `extensions/gobia-core/src/client/dashboard/*` | Four live dots per instance row, one grid for header and rows, websocket stats (`liveStats.ts`) | Extension code | None | `levels.spec.ts`, `status:` flows | None |
-| `extensions/gobia-files/**` | Pane hook, dual workspace, save pipeline, icons, transfer backend (`GobiaFiles\`, route `POST /api/client/extensions/gobia-files/transfers`) | Extension code; the replaced component `server.files.manager` stays the entry point | None | `FileTransferTest`, `dual:`/`explorer:` flows | None |
-| `services/mock-wings/server.mjs` | Pushes stats every second and has a dev only `mock-stats` endpoint | Development tool, never shipped | None | `status:` flows | Keep |
-
-## Final corrections (Settings tabs, Ports)
-
-| File | Purpose | Why an extension cannot do it | Conflict risk | Tests | Removal path |
-| --- | --- | --- | --- | --- | --- |
-| `resources/scripts/router/routeTree.ts` | `settings/startup` and `ports` routes, `startup` and `network` moved in place, Settings guard that sends startup-only users to Startup | Core server routes | Medium (route list changes upstream) | `scripts/gobia/nav-flows.mjs`, routeTree spec | Re-add the upstream `startup` and `network` routes |
-| `resources/scripts/components/server/settings/SettingsContainer.tsx`, `ServerSettingsTabs.tsx`, `startup/StartupContainer.tsx`, `network/NetworkContainer.tsx`, `elements/ServerContentBlock.tsx`, `admin/AdminTabs.tsx` | Tabs, headings, subtitles; `TabLinks` extracted from `AdminTabs` | Core pages | Low to medium | nav flows, Vitest | Revert the files |
-| `resources/scripts/gobia/shell/ServerSwitcher.tsx`, `Sidebars.tsx`, `sdk/navigation.tsx` | Keep Startup tab when switching, Ports icon, new path types (old kept) | Gobia shell and SDK types | Low | nav flows | Revert |
-
-## Updater, security and backend performance (2026-10-09)
-
-The updater itself lives in `extensions/gobia-core` and needs no core change. Outside Gobia owned paths this pass touched:
-
-| File | Purpose | Why the extension API cannot do it | Upstream conflict risk | Tests | Removal path |
-| --- | --- | --- | --- | --- | --- |
-| `app/Services/Extensions/ExtensionRepository.php` (`records()`, `clearErrors()`, `recordFailure()`) | Every request, including every call from Wings, ran `information_schema` (does the `extensions` table exist) and an `UPDATE extensions SET error = NULL ...` while booting. The table check is replaced by recognising SQLSTATE 42S02 on the select, and the UPDATE is only sent when a row that was just read carries an error. Boot queries per request: 3 before, 1 after (`docs/gobia-backend-performance.md`) | The extension loader is core | Low to medium: about 30 lines in three methods of a file upstream still changes | `tests/Unit/Services/Extensions`, `tests/Integration/Extensions`, `tests/Integration/Gobia` | Offer upstream; drop when upstream stops querying at boot |
-| `bootstrap/app.php` (groups `admin-api`, `application-api`) | The administrator and application checks run before route model binding, so a caller without access cannot tell existing ids from missing ones (`docs/gobia-security-review.md`, finding 6) | Middleware groups are core | Low: two lines | `tests/Integration/Gobia/AdminEnumerationTest.php`, upstream admin and application suites | Offer upstream |
-| `.gitattributes` (new) | `*.sh` and `deploy/linux/*` keep LF on a Windows checkout: the root owned update helper and the release script must never get CRLF | Repository configuration | None (new file) | n/a | Keep |
-| `deploy/linux/gobia-update-helper`, `scripts/release/build-release.sh`, `scripts/release/sign.php`, `.github/workflows/gobia-release.yaml` (all new) | Privileged helper, release packaging and signing, release workflow | Deployment and release tooling | None (new files) | `tests/Integration/Gobia/UpdaterTest.php`, `docs/gobia-updater-e2e.md` | Keep |
-
-New Gobia owned paths: `extensions/gobia-core/src/Updater`, `src/Console/Update`, `config/gobia_updater.php`, `tests/Integration/Gobia/UpdaterTest.php`, `BuildsReleases.php`, `TarArchive.php`, `docs/gobia-updates.md`, `docs/gobia-updater-e2e.md`, `docs/gobia-security-review.md`, `docs/gobia-backend-performance.md`.
-
-`extensions/gobia-backups` (offsite backups on a Storage Box, added 2026-10-09) is a Gobia owned path with no core change; its tests are `tests/Integration/Gobia/OffsiteBackupTest.php` and its guide `docs/gobia-backups.md`.
+* **Removed, upstream has it now:** the five temporary pull request patches (7249 to 7253, all merged upstream); the `dashboard.page` component patch.
+* **Taken from upstream, Gobia behaviour not re-applied:** the `Spinner` that rendered the page skeleton (the router still uses it as the pending component),
+  the Tab trap in `components/elements/dialog/Dialog.tsx` (re-run the `keyboard` browser flow), the `relative` table scroll container in
+  `DataTable.tsx` (re-run the responsive check at 390 and 430 px), the toast description colour in `AppToaster.tsx` and `aria-hidden` on `Avatar.tsx`
+  (re-run axe). Where a check fails, fix it in the theme (skin or CSS) before reaching for core.
+* **gobia-core:** upstream's subuser actions now write the `server:subuser.*` activity themselves, so Access no longer logs them a second time (the entries
+  lose Gobia's `via: account` property). The username rule comes from `CreateUser::rules()`; the updater's finalize step activates `gobia-theme` through
+  `ActivatesThemes` after republishing the extensions.
+* **gobia-backups:** node tokens come from upstream's `NodeJwt::issue()` (the old `NodeJWTService` is gone).
+* **Application API keys:** upstream's `AuthorizeExtensionApplicationRequest` lets an application key reach an extension endpoint only with read (GET) or
+  write (anything else) on **every** resource. A key scoped to servers alone can no longer use the gobia-templates application API. Not weakened in core.
+* **Lint:** upstream's `.oxlintrc.json` gained stricter rules; `scripts/gobia/run.mjs lint` checks the Gobia extensions with `.oxlintrc.gobia.json`
+  (the previous rule set) until they are brought up to it.
+* **Tests:** `ClientApiIntegrationTestCase` now wraps each test in a transaction instead of deleting every row afterwards. Extension migrations are DDL,
+  which commits it, so `InstallsGobiaExtensions` opens a real transaction again after installing and rolls back before dropping its tables;
+  `BuildsTemplates` uses `DatabaseTransactions` too, so the template and legacy import tests no longer leave rows behind. Upstream suites built on
+  `IntegrationTestCase` still keep their rows, so the Gobia tests that count everything an administrator sees compare against what was there before.
+  Open: `OffsiteBackupTest` "the schedule queues a backup" passes alone, in the Gobia suite and against a used database, but fails after the whole
+  upstream suite in one process (some state leaks between tests in that process; not found yet).
+* **Windows only:** upstream requires `ext-posix`; a Windows development checkout installs with `composer install --ignore-platform-req=ext-posix`.

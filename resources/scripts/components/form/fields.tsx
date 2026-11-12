@@ -2,6 +2,7 @@ import React, { useId } from 'react';
 import { useFieldContext } from './context';
 import Label from '@/components/elements/Label';
 import { TextInput, TextArea, NumberInput } from './controls';
+import { PasswordInput } from './PasswordInput';
 import { firstError } from './errors';
 import { capitalize } from '@/lib/strings';
 import Select, { type SelectOption } from '@/components/ui/Select';
@@ -14,16 +15,25 @@ type BaseProps = {
     light?: boolean;
 };
 
-const HelpText = ({ id, error, description }: { id: string; error?: string; description?: string }) =>
-    error ? (
-        <p id={id} className={'input-help error'}>
-            {capitalize(error)}
-        </p>
-    ) : description ? (
-        <p id={id} className={'input-help'}>
+const HelpText = ({ id, error, description }: { id: string; error?: string; description?: string }) => {
+    if (error) {
+        return (
+            <p id={id} className='input-help error'>
+                {capitalize(error)}
+            </p>
+        );
+    }
+
+    if (!description) {
+        return null;
+    }
+
+    return (
+        <p id={id} className='input-help'>
             {description}
         </p>
-    ) : null;
+    );
+};
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined =>
     ids.filter((id) => !!id).join(' ') || undefined;
@@ -78,6 +88,50 @@ export function TextField({
                 aria-describedby={describedBy(ariaDescribedBy, describedById)}
                 $hasError={!!error}
                 $isLight={light}
+            />
+            <HelpText id={helpId} error={error} description={description} />
+        </div>
+    );
+}
+
+export type PasswordFieldProps = BaseProps &
+    Omit<React.InputHTMLAttributes<HTMLInputElement>, 'name' | 'value' | 'onChange' | 'defaultValue' | 'type'>;
+
+export function PasswordField({
+    id,
+    label,
+    description,
+    light,
+    onBlur,
+    className,
+    'aria-describedby': ariaDescribedBy,
+    'aria-invalid': ariaInvalid,
+    ...props
+}: PasswordFieldProps) {
+    const { field, error, fieldId, helpId, describedById } = useFieldState<string>(id, description);
+
+    return (
+        <div>
+            {label && (
+                <Label htmlFor={fieldId} isLight={light}>
+                    {label}
+                </Label>
+            )}
+            <PasswordInput
+                {...props}
+                id={fieldId}
+                noun={label?.toLowerCase()}
+                value={field.state.value ?? ''}
+                onValueChange={field.handleChange}
+                onBlur={(event) => {
+                    field.handleBlur();
+                    onBlur?.(event);
+                }}
+                aria-invalid={error ? true : ariaInvalid}
+                aria-describedby={describedBy(ariaDescribedBy, describedById)}
+                $hasError={!!error}
+                $isLight={light}
+                className={className}
             />
             <HelpText id={helpId} error={error} description={description} />
         </div>
@@ -225,6 +279,7 @@ export type MultiSelectFieldProps = BaseProps & {
     disabled?: boolean;
     placeholder?: string;
     searchPlaceholder?: string;
+    onCreate?: (text: string) => void;
 };
 
 export function MultiSelectField({
@@ -236,6 +291,7 @@ export function MultiSelectField({
     disabled,
     placeholder = 'None selected',
     searchPlaceholder,
+    onCreate,
 }: MultiSelectFieldProps) {
     const { field, error, fieldId, helpId, describedById } = useFieldState<(string | number)[]>(id, description);
     const selected = Array.isArray(field.state.value) ? field.state.value : [];
@@ -253,6 +309,7 @@ export function MultiSelectField({
                 options={options}
                 value={selected}
                 onChange={(value) => field.handleChange(value)}
+                onCreate={onCreate}
                 disabled={disabled}
                 placeholder={placeholder}
                 searchPlaceholder={searchPlaceholder}
@@ -309,12 +366,14 @@ export function CheckboxField({ value, disabled, className }: CheckboxFieldProps
             disabled={disabled}
             onChange={(checked) => {
                 const set = new Set(selected);
+
                 if (checked) {
                     set.add(value);
                 } else {
                     set.delete(value);
                 }
-                field.handleChange(Array.from(set));
+
+                field.handleChange([...set]);
             }}
         />
     );

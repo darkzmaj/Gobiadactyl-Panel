@@ -10,7 +10,7 @@ use InvalidArgumentException;
 use Pterodactyl\Data\Extensions\ExtensionJobSnapshot;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\User;
-use Pterodactyl\Support\JsonValueGuard;
+use UnexpectedValueException;
 
 /** Shared snapshots survive reconnects and worker boundaries for the configured retention period. */
 final class ExtensionJobProgress
@@ -18,7 +18,7 @@ final class ExtensionJobProgress
     public function begin(string $extension, User $user, ?Server $server = null, ?string $permission = null): ExtensionJobSnapshot
     {
         throw_unless(preg_match(ExtensionManifest::ID_REGEX, $extension), InvalidArgumentException::class, 'Invalid extension identifier.');
-        throw_if($permission !== null && (! $server instanceof Server || ! preg_match('/'.ExtensionPermissionRegistry::PERMISSION_PATTERN.'/', $permission) || ! str_starts_with($permission, 'ext.'.$extension.'.')), InvalidArgumentException::class, 'Progress permissions must belong to the extension and require a server.');
+        throw_if($permission !== null && (! $server instanceof Server || ! preg_match('/'.ExtensionPermissionRegistry::PERMISSION_PATTERN.'/D', $permission) || ! str_starts_with($permission, 'ext.'.$extension.'.')), InvalidArgumentException::class, 'Progress permissions must belong to the extension and require a server.');
         $snapshot = new ExtensionJobSnapshot(Str::uuid()->toString(), $extension, $user->uuid, $server?->uuid, $permission, 'running', 0, '', 1, now()->toIso8601String());
         $this->store($snapshot);
 
@@ -49,8 +49,7 @@ final class ExtensionJobProgress
     public function find(string $extension, string $id): ?ExtensionJobSnapshot
     {
         $snapshot = Cache::get($this->key($extension, $id));
-
-        ExtensionJobSnapshot::assertCacheValue($snapshot);
+        throw_if($snapshot !== null && ! $snapshot instanceof ExtensionJobSnapshot, UnexpectedValueException::class, 'Invalid cached extension progress snapshot.');
 
         return $snapshot;
     }
@@ -70,7 +69,7 @@ final class ExtensionJobProgress
 
     private function store(ExtensionJobSnapshot $snapshot): void
     {
-        Cache::put($this->key($snapshot->extension, $snapshot->id), $snapshot, max(60, JsonValueGuard::integer(config('extensions.progress_retention_seconds'))));
+        Cache::put($this->key($snapshot->extension, $snapshot->id), $snapshot, max(60, config()->integer('extensions.progress_retention_seconds')));
     }
 
     private function key(string $extension, string $id): string

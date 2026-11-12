@@ -29,13 +29,14 @@ import {
     type Options,
 } from '@/api/generated';
 import { notifyHttpError } from '@/plugins/notifications';
+import type { ExtensionFormValues } from '@/extensions/forms';
 
 type LocationsFilters = 'short' | 'long';
 export type LocationListSort = ListSort<'short' | 'created_at'>;
 type LocationSorts = 'id' | 'short' | 'created_at';
 
 export type AdminLocationsQueryParams = QueryBuilderParams<LocationsFilters, LocationSorts>;
-export type LocationValues = AdminCreateLocationData['body'];
+export type LocationValues = AdminCreateLocationData['body'] & { extensions: ExtensionFormValues };
 export type AdminLocation = AdminLocationResource;
 
 export const createAdminLocationInput = (values: LocationValues): Options<AdminCreateLocationData> => ({
@@ -43,7 +44,7 @@ export const createAdminLocationInput = (values: LocationValues): Options<AdminC
 });
 
 export const updateAdminLocationInput = (id: number, values: LocationValues): Options<AdminUpdateLocationData> => ({
-    path: { id },
+    path: { location_id: id },
     body: values,
 });
 
@@ -111,6 +112,7 @@ export const useCreateAdminLocation = () => {
         onSuccess: async (location) => {
             await invalidateGeneratedOperations(queryClient, ['adminListLocations']);
             const messages = resourceMutationMessages('location', 'create', location.attributes.short);
+
             toast.success(messages.success.title, { description: messages.success.description });
         },
         onError: (error) => notifyHttpError(error, resourceMutationMessages('location', 'create').errorTitle),
@@ -125,9 +127,10 @@ export const useUpdateAdminLocation = () => {
         onSuccess: async (location, variables) => {
             await Promise.all([
                 invalidateGeneratedOperations(queryClient, ['adminListLocations']),
-                queryClient.invalidateQueries({ queryKey: adminLocationDetailKey(variables.path.id) }),
+                queryClient.invalidateQueries({ queryKey: adminLocationDetailKey(variables.path.location_id) }),
             ]);
             const messages = resourceMutationMessages('location', 'update', location.attributes.short);
+
             toast.success(messages.success.title, { description: messages.success.description });
         },
         onError: (error) => notifyHttpError(error, resourceMutationMessages('location', 'update').errorTitle),
@@ -144,6 +147,7 @@ export const useDeleteAdminLocation = () => {
             await invalidateGeneratedOperations(queryClient, ['adminListLocations']);
             const name = variables.meta?.short;
             const messages = resourceMutationMessages('location', 'delete', name);
+
             toast.success(messages.success.title, { description: messages.success.description });
         },
         onError: (error) => notifyHttpError(error, resourceMutationMessages('location', 'delete').errorTitle),

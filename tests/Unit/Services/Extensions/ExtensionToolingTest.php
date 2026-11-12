@@ -40,7 +40,7 @@ test('doctor reports navigation icons the panel does not ship without failing th
     ]]], JSON_THROW_ON_ERROR));
 
     $this->artisan('p:extension:doctor', ['path' => $this->directory])
-        ->expectsOutputToContain('Navigation icon "not-an-icon" is not a lucide icon this panel ships')
+        ->expectsOutputToContain('Icon "not-an-icon" is not a lucide icon this panel ships')
         ->doesntExpectOutputToContain('life-buoy')
         ->assertSuccessful();
 });
@@ -98,6 +98,113 @@ test('packs runtime sources and lazy assets without developer files or hidden se
     $this->artisan('p:extension:pack', ['path' => $this->directory, '--output' => $archive])->assertFailed();
 });
 
+test('leaves source maps, which can embed the full sources, out of an archive unless asked', function (): void {
+    File::put($this->directory.'/dist/client.js.map', '{"sourcesContent":["secret source"]}');
+    $archive = $this->directory.'/probe.pteroext';
+    $names = function () use ($archive): array {
+        $zip = new ZipArchive;
+        expect($zip->open($archive))->toBeTrue();
+        $names = array_map(fn (int $index): string|false => $zip->getNameIndex($index), range(0, $zip->numFiles - 1));
+        $zip->close();
+
+        return $names;
+    };
+
+    $this->artisan('p:extension:pack', ['path' => $this->directory, '--output' => $archive])->assertSuccessful();
+    expect($names())->toContain('dist/client.js')->not->toContain('dist/client.js.map');
+
+    $this->artisan('p:extension:pack', ['path' => $this->directory, '--output' => $archive, '--force' => true, '--sourcemaps' => true])->assertSuccessful();
+    expect($names())->toContain('dist/client.js.map');
+});
+
+test('packs an image icon declared outside the runtime directories once', function (string $icon): void {
+    File::put($this->directory.'/extension.json', json_encode(['id' => 'probe', 'name' => 'Probe', 'version' => '1.0.0', 'icon' => $icon, 'autoload' => ['Probe\\' => 'src'], 'ui' => ['entry' => 'dist/client.js']], JSON_THROW_ON_ERROR));
+    File::ensureDirectoryExists(dirname($this->directory.'/'.$icon));
+    File::put($this->directory.'/'.$icon, toolingPng());
+    $archive = $this->directory.'/probe.pteroext';
+    $this->artisan('p:extension:pack', ['path' => $this->directory, '--output' => $archive])->assertSuccessful();
+    $zip = new ZipArchive;
+    expect($zip->open($archive))->toBeTrue();
+    try {
+        expect($zip->getFromName($icon))->toBe(toolingPng());
+        $names = array_map(fn (int $index): string|false => $zip->getNameIndex($index), range(0, $zip->numFiles - 1));
+        expect(array_count_values(array_filter($names))[$icon])->toBe(1);
+    } finally {
+        $zip->close();
+    }
+})->with(['icon.png', 'dist/icon.png']);
+
+test('doctor warns about an image icon it cannot serve without failing the package', function (?string $contents, string $message): void {
+    File::put($this->directory.'/extension.json', json_encode(['id' => 'probe', 'name' => 'Probe', 'version' => '1.0.0', 'icon' => 'icon.png', 'autoload' => ['Probe\\' => 'src'], 'ui' => ['entry' => 'dist/client.js']], JSON_THROW_ON_ERROR));
+    if ($contents !== null) {
+        File::put($this->directory.'/icon.png', $contents);
+    }
+
+    $this->artisan('p:extension:doctor', ['path' => $this->directory])
+        ->expectsOutputToContain($message)
+        ->assertSuccessful();
+})->with([
+    'missing' => [null, 'Icon "icon.png" is missing'],
+    'not an image' => ['<?php echo 1;', 'Icon "icon.png" is not a readable PNG, JPEG or WebP image'],
+]);
+
+test('doctor accepts a readable image icon', function (): void {
+    File::put($this->directory.'/extension.json', json_encode(['id' => 'probe', 'name' => 'Probe', 'version' => '1.0.0', 'icon' => 'icon.png', 'autoload' => ['Probe\\' => 'src'], 'ui' => ['entry' => 'dist/client.js']], JSON_THROW_ON_ERROR));
+    File::put($this->directory.'/icon.png', toolingPng());
+
+    $this->artisan('p:extension:doctor', ['path' => $this->directory])
+        ->doesntExpectOutputToContain('Icon "icon.png"')
+        ->assertSuccessful();
+});
+
+test('doctor and pack warn about the Composer packages an extension bundles without failing it', function (): void {
+    $guzzle = (require base_path('vendor/composer/installed.php'))['versions']['guzzlehttp/guzzle']['pretty_version'];
+    File::put($this->directory.'/composer.json', json_encode(['require' => ['php' => '^8.3', 'laravel/framework' => '^99.0', 'acme/ledger' => '^1.0']], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+    File::ensureDirectoryExists($this->directory.'/vendor/composer');
+    File::put($this->directory.'/vendor/composer/installed.json', json_encode([
+        'packages' => [
+            ['name' => 'acme/ledger', 'version' => '1.4.0'],
+            ['name' => 'guzzlehttp/guzzle', 'version' => '1.0.0'],
+            ['name' => 'phpunit/phpunit', 'version' => '12.0.0'],
+        ],
+        'dev' => true,
+        'dev-package-names' => ['phpunit/phpunit'],
+    ], JSON_THROW_ON_ERROR));
+
+    $this->artisan('p:extension:doctor', ['path' => $this->directory])
+        ->expectsOutputToContain('vendor/ includes development packages (phpunit/phpunit)')
+        ->expectsOutputToContain('laravel/framework ^99.0 (the panel loads')
+        ->expectsOutputToContain("guzzlehttp/guzzle (bundled 1.0.0, panel {$guzzle})")
+        ->doesntExpectOutputToContain('acme/ledger')
+        ->assertSuccessful();
+
+    $archive = $this->directory.'/probe.pteroext';
+    $this->artisan('p:extension:pack', ['path' => $this->directory, '--output' => $archive])
+        ->expectsOutputToContain('vendor/ includes development packages (phpunit/phpunit)')
+        ->assertSuccessful();
+    $zip = new ZipArchive;
+    expect($zip->open($archive))->toBeTrue();
+    try {
+        expect($zip->getFromName('composer.json'))->toContain('acme/ledger');
+        expect($zip->locateName('vendor/composer/installed.json'))->not->toBeFalse();
+    } finally {
+        $zip->close();
+    }
+
+    // A production install of packages the panel does not ship has nothing to report.
+    File::put($this->directory.'/composer.json', json_encode(['require' => ['acme/ledger' => '^1.0']], JSON_THROW_ON_ERROR));
+    File::put($this->directory.'/vendor/composer/installed.json', json_encode(['packages' => [['name' => 'acme/ledger', 'version' => '1.4.0']], 'dev' => false, 'dev-package-names' => []], JSON_THROW_ON_ERROR));
+    $this->artisan('p:extension:doctor', ['path' => $this->directory])
+        ->doesntExpectOutputToContain('vendor/')
+        ->doesntExpectOutputToContain('composer.json')
+        ->assertSuccessful();
+});
+
+function toolingPng(): string
+{
+    return (string) base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', true);
+}
+
 test('a failed development build never publishes the incomplete package', function (): void {
     Process::fake(['*' => Process::result(exitCode: 1, errorOutput: 'build failed')]);
     $installer = Mockery::mock(InstallsExtensions::class);
@@ -110,7 +217,7 @@ test('development publishes after a successful build', function (): void {
     Process::fake(['*' => Process::result(output: 'built in 100ms')]);
     $manifest = resolve(ExtensionManifestValidator::class)->fromDirectory($this->directory);
     $installer = Mockery::mock(InstallsExtensions::class);
-    $installer->shouldReceive('install')->once()->with($this->directory, false)->andReturn($manifest);
+    $installer->shouldReceive('install')->once()->with($this->directory, false, true)->andReturn($manifest);
     $this->app->instance(InstallsExtensions::class, $installer);
     $this->artisan('p:extension:dev', ['path' => $this->directory])->assertSuccessful();
 });
@@ -132,4 +239,18 @@ test('generates literal screen ids and only declared frontend configuration keys
     expect($source)->toContain('ExtensionScreenId = "main"', 'readonly "enabled": boolean', 'ExtensionPermission = "ext.probe.view"');
     expect($source)->toContain('readonly "accent": string;', 'readonly "links": readonly ExtensionConfigValue[];', 'ExtensionPublicConfigKey = "enabled";', 'ExtensionPublicConfig = Pick<ExtensionConfig, ExtensionPublicConfigKey>');
     expect($source)->not->toContain('token', 'private');
+});
+
+test('warns about missing frontend configuration keys only when a provider could declare them', function (): void {
+    $this->artisan('p:extension:types', ['path' => $this->directory])
+        ->doesntExpectOutputToContain('provider is not loaded')
+        ->assertSuccessful();
+
+    $manifest = File::json($this->directory.'/extension.json');
+    $manifest['provider'] = 'Probe\\ProbeServiceProvider';
+    File::put($this->directory.'/extension.json', json_encode($manifest, JSON_THROW_ON_ERROR));
+
+    $this->artisan('p:extension:types', ['path' => $this->directory])
+        ->expectsOutputToContain('provider is not loaded')
+        ->assertSuccessful();
 });

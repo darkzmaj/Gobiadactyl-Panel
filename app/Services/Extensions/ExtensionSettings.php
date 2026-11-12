@@ -5,8 +5,15 @@ declare(strict_types=1);
 namespace Pterodactyl\Services\Extensions;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
 use InvalidArgumentException;
+use Pterodactyl\Models\DatabaseHost;
+use Pterodactyl\Models\Egg;
 use Pterodactyl\Models\ExtensionSetting;
+use Pterodactyl\Models\Location;
+use Pterodactyl\Models\Mount;
+use Pterodactyl\Models\Node;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\User;
 use Throwable;
@@ -17,12 +24,34 @@ use Throwable;
  */
 class ExtensionSettings
 {
-    /** @var ExtensionSettingValues|null all rows, loaded once per instance on first read */
+    /**
+     * The models settings can be scoped to, keyed by morph alias. Each has a cascading
+     * `<alias>_id` column on extension_settings, so scoped settings go with their model.
+     */
+    public const array SCOPES = [
+        'user' => User::class,
+        'server' => Server::class,
+        'node' => Node::class,
+        'egg' => Egg::class,
+        'location' => Location::class,
+        'mount' => Mount::class,
+        'database_host' => DatabaseHost::class,
+    ];
+
+    /** @var array<string, mixed>|null all rows, loaded once per instance on first read */
     private ?array $loaded = null;
 
-    public function __construct(private readonly string $extension, private readonly User|Server|null $subject = null)
-    {
-        throw_if($subject !== null && ! $subject->exists, InvalidArgumentException::class, 'Scoped settings require a persisted user or server.');
+    public function __construct(
+        private readonly string $extension,
+        private readonly ?Model $subject = null,
+        private readonly bool $fields = false,
+    ) {
+        if ($subject instanceof Model) {
+            throw_unless(in_array($subject::class, self::SCOPES, true), InvalidArgumentException::class, sprintf('Extension settings cannot be scoped to %s.', $subject::class));
+            throw_unless($subject->exists, InvalidArgumentException::class, 'Scoped settings require a persisted model.');
+        }
+
+        throw_if($fields && ! $subject instanceof Model, InvalidArgumentException::class, 'Field values belong to a model.');
     }
 
     /** @param list<self> $settings */
@@ -63,20 +92,32 @@ class ExtensionSettings
         return $this->extension;
     }
 
+    /** Settings scoped to one user, server, node, egg, location, mount or database host. */
+    public function for(Model $subject): self
+    {
+        return new self($this->extension, $subject);
+    }
+
+    /**
+     * The values of the extension's admin form fields for one model, which the panel stores
+     * when its Fields class has no values() and save(). They are kept apart from `for()`, so
+     * settings an extension shows or lets its users change never include them.
+     */
+    public function fields(Model $subject): self
+    {
+        return new self($this->extension, $subject, fields: true);
+    }
+
     public function forUser(User $user): self
     {
-        return new self($this->extension, $user);
+        return $this->for($user);
     }
 
     public function forServer(Server $server): self
     {
-        return new self($this->extension, $server);
+        return $this->for($server);
     }
 
-    /**
-     * @param  ExtensionSettingValue  $default
-     * @return ExtensionSettingValue
-     */
     public function get(string $key, mixed $default = null): mixed
     {
         $loaded = $this->loaded ??= $this->all();
@@ -84,7 +125,7 @@ class ExtensionSettings
         return array_key_exists($key, $loaded) ? $loaded[$key] : $default;
     }
 
-    /** @return ExtensionSettingValues */
+    /** @return array<string, mixed> */
     public function all(): array
     {
         $values = [];
@@ -95,26 +136,24 @@ class ExtensionSettings
         return $this->loaded = $values;
     }
 
-    /** @param ExtensionSettingValue $value */
     public function set(string $key, mixed $value): void
     {
         $this->setMany([$key => $value]);
     }
 
-    /** @param ExtensionSettingValue $value */
     public function setSecret(string $key, mixed $value): void
     {
         $this->setManySecrets([$key => $value], [$key]);
     }
 
-    /** @param ExtensionSettingValues $values */
+    /** @param array<string, mixed> $values */
     public function setMany(array $values): void
     {
         $this->persist($values, []);
     }
 
     /**
-     * @param  ExtensionSettingValues  $values
+     * @param  array<string, mixed>  $values
      * @param  list<string>  $secretKeys
      */
     public function setManySecrets(array $values, array $secretKeys): void
@@ -131,11 +170,11 @@ class ExtensionSettings
         unset($this->loaded[$key]);
     }
 
-    /** @return ExtensionSettingValues keys matching the prefix, prefix stripped */
+    /** @return array<string, mixed> keys matching the prefix, prefix stripped */
     public function getByPrefix(string $prefix): array
     {
         return $this->query()
-            ->where('key', 'like', str_replace(['%', '_'], ['\\%', '\\_'], $prefix).'%')
+            ->where('key', 'like', $this->startsWith($prefix))
             ->get()
             ->mapWithKeys(fn (ExtensionSetting $setting): array => [
                 mb_substr($setting->key, mb_strlen($prefix)) => $setting->value === null ? null : ExtensionSettingValueGuard::decode($setting->value, $setting->is_secret),
@@ -146,14 +185,14 @@ class ExtensionSettings
     public function forgetByPrefix(string $prefix): void
     {
         $this->query()
-            ->where('key', 'like', str_replace(['%', '_'], ['\\%', '\\_'], $prefix).'%')
+            ->where('key', 'like', $this->startsWith($prefix))
             ->delete();
 
         $this->loaded = null;
     }
 
     /**
-     * @param  ExtensionSettingValues  $values
+     * @param  array<string, mixed>  $values
      * @param  list<string>  $secretKeys
      */
     private function persist(array $values, array $secretKeys): void
@@ -162,14 +201,18 @@ class ExtensionSettings
             return;
         }
 
+        $subjects = [];
+        foreach (self::SCOPES as $alias => $model) {
+            $subjects[$alias.'_id'] = $this->subject instanceof $model ? $this->subjectKey($this->subject) : null;
+        }
+
         $rows = [];
         foreach ($values as $key => $value) {
             $rows[] = [
                 'extension' => $this->extension,
                 'key' => $key,
                 'scope' => $this->scope(),
-                'user_id' => $this->subject instanceof User ? $this->subject->id : null,
-                'server_id' => $this->subject instanceof Server ? $this->subject->id : null,
+                ...$subjects,
                 'is_secret' => in_array($key, $secretKeys, true),
                 'value' => ExtensionSettingValueGuard::encode($value, in_array($key, $secretKeys, true)),
             ];
@@ -184,11 +227,22 @@ class ExtensionSettings
 
     private function scope(): string
     {
-        return match (true) {
-            $this->subject instanceof User => 'user:'.$this->subject->id,
-            $this->subject instanceof Server => 'server:'.$this->subject->id,
-            default => 'global',
-        };
+        if (! $this->subject instanceof Model) {
+            return 'global';
+        }
+
+        return ($this->fields ? 'fields:' : '').$this->subject->getMorphClass().':'.$this->subjectKey($this->subject);
+    }
+
+    /** A LIKE pattern for keys starting with the prefix, its wildcards and escape character taken literally. */
+    private function startsWith(string $prefix): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix).'%';
+    }
+
+    private function subjectKey(Model $subject): int
+    {
+        return Arr::integer($subject, $subject->getKeyName());
     }
 
     /** @return Builder<ExtensionSetting> */

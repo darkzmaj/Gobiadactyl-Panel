@@ -27,6 +27,7 @@ class ExportEggController extends AdminApiController
         'author' => 'support@example.com',
         'description' => 'Minecraft Java server.',
         'features' => ['eula'],
+        'tags' => ['minecraft'],
         'docker_images' => [
             'Java 21' => 'ghcr.io/pterodactyl/yolks:java_21',
         ],
@@ -40,7 +41,6 @@ class ExportEggController extends AdminApiController
     #[ScribeResponse(self::EXPORT_EXAMPLE, description: 'Egg share file returned.')]
     public function __invoke(GetEggRequest $request, ExportsEggs $eggs, Egg $egg): Response
     {
-
         $filename = mb_trim(preg_replace('/\W/', '-', Str::kebab($egg->name)), '-');
 
         return new Response($eggs->export($egg), Response::HTTP_OK, [

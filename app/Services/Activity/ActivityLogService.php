@@ -4,19 +4,16 @@ declare(strict_types=1);
 
 namespace Pterodactyl\Services\Activity;
 
-use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
-use Illuminate\Contracts\Auth\Factory as AuthFactory;
-use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Pterodactyl\Models\ActivityLog;
 use Pterodactyl\Models\ActivityLogSubject;
-use Pterodactyl\Support\JsonEmptyObject;
-use Pterodactyl\Support\JsonValueGuard;
 use Throwable;
 
 class ActivityLogService
@@ -27,10 +24,8 @@ class ActivityLogService
     protected array $subjects = [];
 
     public function __construct(
-        protected AuthFactory $manager,
         protected ActivityLogBatchService $batch,
         protected ActivityLogTargetableService $targetable,
-        protected ConnectionInterface $connection,
         protected Request $request,
     ) {}
 
@@ -110,10 +105,10 @@ class ActivityLogService
     /**
      * Sets a custom property on the activity log instance.
      *
-     * @param  string|array<string, JsonValue>  $key
-     * @param  JsonInputValue  $value  Ignored when an array of properties is provided.
+     * @param  string|array<string, mixed>  $key
+     * @param  mixed  $value  Ignored when an array of properties is provided.
      */
-    public function property(array|string $key, array|bool|float|int|string|JsonEmptyObject|null $value = null): self
+    public function property(array|string $key, mixed $value = null): self
     {
         $activity = $this->getActivity();
         $properties = $activity->properties;
@@ -122,7 +117,6 @@ class ActivityLogService
                 $properties->put($name, $property);
             }
         } else {
-            JsonValueGuard::assertValue($value);
             $properties->put($key, $value);
         }
 
@@ -178,29 +172,6 @@ class ActivityLogService
     }
 
     /**
-     * Executes the provided callback within the scope of a database transaction
-     * and will only save the activity log entry if everything else successfully
-     * settles.
-     *
-     * @template TReturn of object|ApiValue10
-     *
-     * @param  Closure($this): TReturn  $callback
-     * @return TReturn
-     *
-     * @throws Throwable
-     */
-    public function transaction(Closure $callback): array|bool|float|int|object|string|null
-    {
-        return $this->connection->transaction(function () use ($callback) {
-            $response = $callback($this);
-
-            $this->save();
-
-            return $response;
-        });
-    }
-
-    /**
      * Resets the instance and clears out the log.
      */
     public function reset(): void
@@ -231,7 +202,7 @@ class ActivityLogService
 
         if (($actor = $this->targetable->actor()) instanceof Model) {
             $this->actor($actor);
-        } elseif (($user = $this->manager->guard()->user()) !== null) {
+        } elseif (($user = Auth::guard()->user()) !== null) {
             $this->actor($user);
         }
 
@@ -248,7 +219,7 @@ class ActivityLogService
         throw_unless($this->activity instanceof ActivityLog, InvalidArgumentException::class, 'Cannot save an activity log before one has been initialized.');
 
         $activity = $this->activity;
-        $response = $this->connection->transaction(function () use ($activity): ActivityLog {
+        $response = DB::transaction(function () use ($activity): ActivityLog {
             $activity->save();
 
             $subjects = Collection::make($this->subjects)

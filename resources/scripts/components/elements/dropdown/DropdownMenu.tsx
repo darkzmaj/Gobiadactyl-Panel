@@ -2,36 +2,38 @@ import React, { use } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { ContextMenu } from '@base-ui/react/context-menu';
 import type { LucideIcon } from 'lucide-react';
-import { cn } from '@/lib/cn';
 import Icon from '@/components/elements/Icon';
-
-const positionerClass = 'z-[9999] outline-hidden';
-
-const popupClass =
-    'min-w-52 bg-card border border-border/55 rounded-md shadow-lg p-1.5 text-sm text-foreground ' +
-    'outline-hidden origin-[var(--transform-origin)] transition duration-100 ' +
-    'data-[starting-style]:opacity-0 data-[starting-style]:scale-95 ' +
-    'data-[ending-style]:opacity-0 data-[ending-style]:scale-95';
+import { PanelLink, type PanelDestination } from '@/sdk/navigation';
+import { useSkin } from '@/themes/skins';
 
 type MenuItemComponent = React.ComponentType<React.ComponentProps<typeof Menu.Item>>;
 const MenuItemContext = React.createContext<MenuItemComponent>(Menu.Item as MenuItemComponent);
 const ContextMenuItem = (props: React.ComponentProps<typeof Menu.Item>) => <ContextMenu.Item {...props} />;
 
-interface DropdownMenuProps {
+export interface DropdownMenuProps {
     /** Rendered inside the trigger `<button>`. */
     triggerContent: React.ReactNode;
     triggerClassName?: string;
+    openOnHover?: boolean;
     children: React.ReactNode;
     className?: string;
 }
 
-function DropdownMenu({ triggerContent, triggerClassName, children, className }: DropdownMenuProps) {
+function DropdownMenu({ triggerContent, triggerClassName, openOnHover, children, className }: DropdownMenuProps) {
+    const ui = useSkin('DropdownMenu', { context: false });
+
     return (
         <Menu.Root>
-            <Menu.Trigger className={triggerClassName}>{triggerContent}</Menu.Trigger>
+            <Menu.Trigger
+                {...ui('trigger', triggerClassName)}
+                openOnHover={openOnHover}
+                closeDelay={openOnHover ? 150 : 0}
+            >
+                {triggerContent}
+            </Menu.Trigger>
             <Menu.Portal>
-                <Menu.Positioner className={positionerClass} sideOffset={4} align={'end'}>
-                    <Menu.Popup className={cn(popupClass, className)}>
+                <Menu.Positioner {...ui('positioner')} sideOffset={4} align='end'>
+                    <Menu.Popup {...ui('root', className)}>
                         <MenuItemContext.Provider value={Menu.Item as MenuItemComponent}>
                             {children}
                         </MenuItemContext.Provider>
@@ -42,7 +44,7 @@ function DropdownMenu({ triggerContent, triggerClassName, children, className }:
     );
 }
 
-interface ContextDropdownMenuProps {
+export interface ContextDropdownMenuProps {
     className?: string;
     menuClassName?: string;
     children: React.ReactNode;
@@ -51,12 +53,14 @@ interface ContextDropdownMenuProps {
 
 /** Opens `items` at the cursor on right-click or long-press over `children`. */
 export function ContextDropdownMenu({ className, menuClassName, children, items }: ContextDropdownMenuProps) {
+    const ui = useSkin('DropdownMenu', { context: true });
+
     return (
         <ContextMenu.Root>
-            <ContextMenu.Trigger className={className}>{children}</ContextMenu.Trigger>
+            <ContextMenu.Trigger {...ui('trigger', className)}>{children}</ContextMenu.Trigger>
             <ContextMenu.Portal>
-                <ContextMenu.Positioner className={positionerClass}>
-                    <ContextMenu.Popup className={cn(popupClass, menuClassName)}>
+                <ContextMenu.Positioner {...ui('positioner')}>
+                    <ContextMenu.Popup {...ui('root', menuClassName)}>
                         <MenuItemContext.Provider value={ContextMenuItem}>{items}</MenuItemContext.Provider>
                     </ContextMenu.Popup>
                 </ContextMenu.Positioner>
@@ -65,58 +69,76 @@ export function ContextDropdownMenu({ className, menuClassName, children, items 
     );
 }
 
-interface ItemProps extends React.ComponentProps<typeof Menu.Item> {
+export interface DropdownMenuItemProps extends Omit<React.ComponentProps<typeof Menu.Item>, 'className'> {
+    className?: string;
     icon?: LucideIcon;
     danger?: boolean;
     description?: React.ReactNode;
+    /** Makes the item a link to a panel page; following it closes the menu. */
+    destination?: PanelDestination;
+    /** Makes the item a choice that is on or off, such as the scheme in use: a `menuitemcheckbox`. */
+    checked?: boolean;
 }
 
 /** An item for either DropdownMenu or ContextDropdownMenu. */
-export function DropdownMenuItem({ icon, danger, description, className, children, ...props }: ItemProps) {
+export function DropdownMenuItem({
+    icon,
+    danger,
+    description,
+    destination,
+    checked,
+    className,
+    children,
+    ...props
+}: DropdownMenuItemProps) {
     const Item = use(MenuItemContext);
-
-    return (
-        <Item
-            className={cn(
-                'group flex w-full gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer select-none outline-hidden',
-                description ? 'items-start' : 'items-center',
-                'text-foreground transition-colors duration-100 data-[highlighted]:bg-secondary data-[highlighted]:text-foreground',
-                danger && 'text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive',
-                className
-            )}
-            {...props}
-        >
+    const ui = useSkin('DropdownMenuItem', { danger: !!danger, described: !!description, checked: !!checked });
+    const content = (
+        <>
             {icon && (
-                <span
-                    className={cn(
-                        'flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition-colors',
-                        description && 'mt-0.5',
-                        danger && 'text-destructive'
-                    )}
-                >
-                    <Icon icon={icon} className={'h-4 w-4'} />
+                <span {...ui('icon')}>
+                    <Icon icon={icon} {...ui('glyph')} />
                 </span>
             )}
-            <span className={'flex min-w-0 flex-1 flex-col'}>
-                <span className={'truncate text-sm leading-5'}>{children}</span>
-                {description && (
-                    <span
-                        className={cn(
-                            'mt-0.5 text-xs leading-4 text-muted-foreground',
-                            'group-data-[highlighted]:text-muted-foreground',
-                            danger && 'group-data-[highlighted]:text-destructive/80'
-                        )}
-                    >
-                        {description}
-                    </span>
-                )}
+            <span {...ui('text')}>
+                <span {...ui('label')}>{children}</span>
+                {description && <span {...ui('description')}>{description}</span>}
             </span>
+        </>
+    );
+
+    if (destination) {
+        return (
+            <Menu.LinkItem
+                {...ui('root', className)}
+                id={props.id}
+                label={props.label}
+                closeOnClick
+                render={<PanelLink destination={destination} />}
+            >
+                {content}
+            </Menu.LinkItem>
+        );
+    }
+
+    if (checked !== undefined) {
+        return (
+            <Menu.CheckboxItem closeOnClick {...ui('root', className)} {...props} checked={checked}>
+                {content}
+            </Menu.CheckboxItem>
+        );
+    }
+
+    return (
+        <Item {...ui('root', className)} {...props}>
+            {content}
         </Item>
     );
 }
 
 // Assigned as a static property; Object.assign would hide the component from Fast Refresh.
 const DropdownMenuWithItems = DropdownMenu as typeof DropdownMenu & { Item: typeof DropdownMenuItem };
+
 DropdownMenuWithItems.Item = DropdownMenuItem;
 
 export default DropdownMenuWithItems;

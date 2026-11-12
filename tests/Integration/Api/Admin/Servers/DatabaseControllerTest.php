@@ -12,6 +12,7 @@ use Pterodactyl\Models\DatabaseHost;
 use Pterodactyl\Services\Databases\DatabaseHostGateway;
 use Pterodactyl\Tests\Integration\Api\Admin\AdminApiIntegrationTestCase;
 use Pterodactyl\Tests\Support\Fakes\FakeDatabaseHostGateway;
+use RuntimeException;
 
 use function pterodactylTestCase;
 
@@ -84,6 +85,13 @@ test('create database', function (): void {
     $gateway->assertAssigned('s'.$server->id.'_admindb', $database->username, '%');
     $gateway->assertFlushed(1);
 });
+test('a database created without a connection limit has none', function (): void {
+    $server = $this->createServerModel();
+    $host = DatabaseHost::factory()->create();
+    $this->app->instance(DatabaseHostGateway::class, new FakeDatabaseHostGateway());
+    $this->postJson(route('api.admin.servers.databases.store', ['server' => $server->id]), ['database' => 'unlimited', 'remote' => '%', 'database_host_id' => $host->id])->assertCreated();
+    expect(Database::query()->where('server_id', $server->id)->firstOrFail()->max_connections)->toBeNull();
+});
 test('create database validation', function (): void {
     $server = $this->createServerModel();
     $response = $this->postJson(route('api.admin.servers.databases.store', ['server' => $server->id]), []);
@@ -108,6 +116,24 @@ test('rotate password', function (): void {
 
     $gateway->assertFlushed(1);
     expect($gateway->count('createUser'))->toBe(1);
+    $this->assertDatabaseHas('activity_logs', ['event' => 'admin:server-database.rotate-password']);
+    // The owner sees the rotation on the server's own feed.
+    expect($server->activity()->pluck('event')->all())->toBe(['server:database.rotate-password']);
+});
+test('a failed password rotation keeps the stored password and logs no activity', function (): void {
+    $server = $this->createServerModel();
+    $host = DatabaseHost::factory()->create();
+    $database = Database::factory()->create(['server_id' => $server->id, 'database_host_id' => $host->id]);
+    $password = $database->password;
+    $this->app->instance(DatabaseHostGateway::class, $gateway = new FakeDatabaseHostGateway());
+    $gateway->throwOn['createUser'] = new RuntimeException('remote failure');
+    $this->withoutExceptionHandling();
+
+    expect(fn () => $this->postJson(route('api.admin.servers.databases.rotate-password', ['server' => $server->id, 'database' => hashid($database->id)])))
+        ->toThrow(RuntimeException::class);
+
+    expect($database->refresh()->password)->toBe($password);
+    $this->assertDatabaseMissing('activity_logs', ['event' => 'admin:server-database.rotate-password']);
 });
 test('rotate password database not on server', function (): void {
     $server = $this->createServerModel();

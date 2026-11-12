@@ -11,7 +11,6 @@ use Pterodactyl\Contracts\Subusers\CreatesSubusers;
 use Pterodactyl\Contracts\Subusers\DeletesSubusers;
 use Pterodactyl\Contracts\Subusers\UpdatesSubusers;
 use Pterodactyl\Exceptions\Service\Subuser\UserIsServerOwnerException;
-use Pterodactyl\Facades\Activity;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\Subuser;
 use Pterodactyl\Models\User;
@@ -103,16 +102,14 @@ class AccessService
                         abort(403, 'This person holds more permissions than you on '.$server->name.'.');
                     }
                     $this->updater->update($server, $existing, $permissions);
-                    Activity::event('server:subuser.update')->subject($server, $existing->user)->property(['email' => $email, 'new' => $permissions, 'via' => 'account'])->log();
 
                     continue;
                 }
                 try {
-                    $subuser = $this->creator->create($server, $email, $permissions);
+                    $this->creator->create($server, $email, $permissions);
                 } catch (UserIsServerOwnerException) {
                     throw ValidationException::withMessages(['email' => 'You already own these servers.']);
                 }
-                Activity::event('server:subuser.create')->subject($server, $subuser->user)->property(['email' => $email, 'permissions' => $permissions, 'via' => 'account'])->log();
             }
         });
     }
@@ -136,16 +133,13 @@ class AccessService
             foreach ($current as $row) {
                 if (! $target->contains('id', $row->server_id)) {
                     $this->deleter->delete($row->server, $row);
-                    Activity::event('server:subuser.delete')->subject($row->server, $person)->property(['email' => $person->email, 'via' => 'account'])->log();
                 }
             }
             foreach ($target as $server) {
                 if ($current->has($server->id)) {
                     $this->updater->update($server, $current[$server->id], $permissions);
-                    Activity::event('server:subuser.update')->subject($server, $person)->property(['email' => $person->email, 'new' => $permissions, 'via' => 'account'])->log();
                 } else {
                     $this->creator->create($server, $person->email, $permissions);
-                    Activity::event('server:subuser.create')->subject($server, $person)->property(['email' => $person->email, 'permissions' => $permissions, 'via' => 'account'])->log();
                 }
             }
         });
@@ -158,7 +152,6 @@ class AccessService
         DB::transaction(function () use ($owner, $person): void {
             foreach ($this->rows($owner, $person) as $row) {
                 $this->deleter->delete($row->server, $row);
-                Activity::event('server:subuser.delete')->subject($row->server, $person)->property(['email' => $person->email, 'via' => 'account'])->log();
             }
         });
     }

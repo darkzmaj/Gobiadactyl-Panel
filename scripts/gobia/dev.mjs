@@ -136,14 +136,13 @@ rebuildOnChange(
     'frontend',
     [
         join(root, 'resources/scripts'),
-        join(root, 'resources/gobia'),
         join(root, 'packages/sdk/components'),
         join(root, 'packages/sdk/theme.css'),
     ].filter(existsSync),
     bin('vite'),
     ['build']
 );
-for (const name of ['gobia-core', 'gobia-templates', 'gobia-files']) {
+for (const name of ['gobia-core', 'gobia-templates', 'gobia-files', 'gobia-theme']) {
     const dir = join(root, 'extensions', name);
     if (existsSync(join(dir, 'vite.config.mjs')))
         rebuildOnChange(

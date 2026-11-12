@@ -29,6 +29,8 @@ return [
         'account' => [
             'email-changed' => 'Changed email from :old to :new',
             'password-changed' => 'Changed password',
+            'avatar-changed' => 'Changed avatar',
+            'avatar-deleted' => 'Removed avatar',
         ],
         'api-key' => [
             'create' => 'Created new API key :identifier',
@@ -74,6 +76,8 @@ return [
         'file' => [
             'compress_one' => 'Compressed :directory:files.0',
             'compress_other' => 'Compressed :count files in :directory',
+            'chmod_one' => 'Changed the permissions of :directory:files.0.file to :files.0.mode',
+            'chmod_other' => 'Changed the permissions of :count files in :directory',
             'read' => 'Viewed the contents of :file',
             'copy' => 'Created a copy of :file',
             'create-directory' => 'Created directory :directory:name',
@@ -224,11 +228,20 @@ return [
             'update' => 'Updated the :slug tag',
             'delete' => 'Deleted the :slug tag',
         ],
+        'theme' => [
+            'activate' => 'Activated the :theme theme',
+            'reset' => 'Reset the panel to the classic theme',
+            'settings' => 'Updated the settings of the :theme theme',
+            'image' => 'Uploaded the :setting image of the :theme theme',
+            'image-clear' => 'Removed the :setting image of the :theme theme',
+        ],
         'user' => [
             'create' => 'Created the user :email',
             'update' => 'Updated the user :email',
             'delete' => 'Deleted the user :email',
             'disable-2fa' => 'Disabled two-factor authentication for :email',
+            'avatar-changed' => 'Changed the avatar of :email',
+            'avatar-deleted' => 'Removed the avatar of :email',
         ],
     ],
 ];

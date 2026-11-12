@@ -27,6 +27,7 @@ final class ExtensionRegistration
         private readonly ExtensionActionDecorators $actions,
         private readonly ExtensionConsoleRegistry $console,
         private readonly ExtensionHeadTags $headTags,
+        private readonly ExtensionFieldRegistry $fields,
     ) {}
 
     public function begin(): void
@@ -58,11 +59,8 @@ final class ExtensionRegistration
         $actions = $this->actions->snapshot();
         $console = $this->console->snapshot();
         $headTags = $this->headTags->snapshot();
-        $router = clone $this->router;
-        $routes = $this->router->getRoutes();
-        if ($routes instanceof RouteCollection) {
-            $router->setRoutes(clone $routes);
-        }
+        $fields = $this->fields->snapshot();
+        $router = new ExtensionStagingRouter($this->router);
 
         Route::swap($router);
         $registrations = $this->pending;
@@ -72,13 +70,7 @@ final class ExtensionRegistration
                 $registration();
             }
 
-            $routes = $router->getRoutes();
-            if ($routes instanceof RouteCollection) {
-                $routes->refreshNameLookups();
-                $routes->refreshActionLookups();
-                $this->router->setRoutes($routes);
-            }
-
+            $router->apply();
             $this->active = true;
         } catch (Throwable $throwable) {
             $this->settings->unregister($identifier);
@@ -94,6 +86,7 @@ final class ExtensionRegistration
             $this->actions->restore($actions);
             $this->console->restore($console);
             $this->headTags->restore($headTags);
+            $this->fields->restore($fields);
 
             throw $throwable;
         } finally {

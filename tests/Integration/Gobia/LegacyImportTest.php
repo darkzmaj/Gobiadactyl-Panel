@@ -35,10 +35,13 @@ class LegacyImportTest extends IntegrationTestCase
         $this->bootTemplates();
         $this->dropLegacy();
         $this->createLegacy();
+        // The legacy tables above are DDL, which committed the test's transaction.
+        $this->reopenTestTransaction();
     }
 
     protected function tearDown(): void
     {
+        $this->rollBackTestTransaction();
         $this->dropLegacy();
         Storage::disk('local')->deleteDirectory('avatars');
         $this->shutdownTemplates();

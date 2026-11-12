@@ -1,13 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import {
+    adminDeleteLogoMutation,
     adminGetSettingsOptions,
     adminGetSettingsQueryKey,
     adminSendTestMailMutation,
     adminUpdateAdvancedSettingsMutation,
     adminUpdateGeneralSettingsMutation,
     adminUpdateMailSettingsMutation,
+    adminUploadLogoMutation,
 } from '@/api/generated/@tanstack/react-query.gen';
 import type {
     AdminGetSettingsResponse,
@@ -31,6 +33,7 @@ type AdminSettingsSection = 'Advanced' | 'General' | 'Mail';
 export interface GeneralSettingsValues {
     name: string;
     twoFactorRequired: NonNullable<AdminGeneralSettingsBody['misc']>['required_2fa'];
+    userAvatarsEnabled: boolean;
     locale: string;
 }
 
@@ -77,7 +80,10 @@ export const updateAdminGeneralSettingsInput = (
 ): Options<AdminUpdateGeneralSettingsData> => ({
     body: {
         branding: { name: values.name },
-        misc: { required_2fa: values.twoFactorRequired },
+        misc: {
+            required_2fa: values.twoFactorRequired,
+            user_avatars_enabled: values.userAvatarsEnabled ? 'true' : 'false',
+        },
         default_locale: values.locale,
     },
 });
@@ -118,6 +124,7 @@ export const useAdminSettings = (options?: AdminSettingsQueryOptions) =>
 
 export const useUpdateAdminGeneralSettings = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminUpdateGeneralSettingsMutation(),
         onSuccess: async (_data, { body }) => {
@@ -125,23 +132,61 @@ export const useUpdateAdminGeneralSettings = () => {
                 ...settings,
                 name: body.branding?.name ?? settings.name,
                 locale: body.default_locale,
+                userAvatarsEnabled: body.misc?.user_avatars_enabled === 'true',
             }));
             await queryClient.invalidateQueries({ queryKey: adminGetSettingsQueryKey() });
             const notification = adminSettingsUpdateToast('General');
+
             toast.success(notification.title, { description: notification.description });
         },
         onError: (error) => notifyHttpError(error, 'Unable to update general settings'),
     });
 };
 
+const setAdminLogo = async (queryClient: QueryClient, logo: string | null) => {
+    queryClient.setQueryData<AdminSettings>(adminGetSettingsQueryKey(), (settings) =>
+        settings ? { ...settings, general: { ...settings.general, 'app:logo': logo } } : settings
+    );
+    setSiteSettingsQueryData(queryClient, (settings) => ({ ...settings, logo }));
+    await queryClient.invalidateQueries({ queryKey: adminGetSettingsQueryKey() });
+};
+
+export const useUploadAdminLogo = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        ...adminUploadLogoMutation(),
+        onSuccess: async ({ logo }) => {
+            await setAdminLogo(queryClient, logo ?? null);
+            toast.success('Logo updated');
+        },
+        onError: (error) => notifyHttpError(error, 'Unable to upload logo'),
+    });
+};
+
+export const useDeleteAdminLogo = () => {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        ...adminDeleteLogoMutation(),
+        onSuccess: async () => {
+            await setAdminLogo(queryClient, null);
+            toast.success('Logo removed');
+        },
+        onError: (error) => notifyHttpError(error, 'Unable to remove logo'),
+    });
+};
+
 export const useUpdateAdminMailSettings = ({ successNotification = true }: UpdateAdminMailSettingsOptions = {}) => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminUpdateMailSettingsMutation(),
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey: adminGetSettingsQueryKey() });
             if (successNotification) {
                 const notification = adminSettingsUpdateToast('Mail');
+
                 toast.success(notification.title, { description: notification.description });
             }
         },
@@ -161,6 +206,7 @@ export const useSendTestAdminMail = () =>
 
 export const useUpdateAdminAdvancedSettings = () => {
     const queryClient = useQueryClient();
+
     return useMutation({
         ...adminUpdateAdvancedSettingsMutation(),
         onSuccess: async (_data, { body }) => {
@@ -173,6 +219,7 @@ export const useUpdateAdminAdvancedSettings = () => {
             }));
             await queryClient.invalidateQueries({ queryKey: adminGetSettingsQueryKey() });
             const notification = adminSettingsUpdateToast('Advanced');
+
             toast.success(notification.title, { description: notification.description });
         },
         onError: (error) => notifyHttpError(error, 'Unable to update advanced settings'),

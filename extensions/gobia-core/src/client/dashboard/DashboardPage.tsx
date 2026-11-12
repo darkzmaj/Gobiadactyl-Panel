@@ -1,4 +1,11 @@
-import { PageContentBlock, Pagination, toast, usePanelNavigate, type ReplacementProps } from '@pterodactyl/sdk';
+import {
+    PageContentBlock,
+    Pagination,
+    toast,
+    useCurrentUser,
+    usePanelNavigate,
+    type ViewProps,
+} from '@pterodactyl/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, FolderPlus, Palette, Pencil, Plus, Search, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -106,7 +113,9 @@ function ViewMenu({
     );
 }
 
-export default function DashboardPage({ model }: ReplacementProps<'dashboard.page'>) {
+// The page view's model only carries load status; the Gobia list owns its data, so the native list query never runs.
+export default function DashboardPage(_props: ViewProps<'page.dashboard'>) {
+    const { rootAdmin } = useCurrentUser();
     const queryClient = useQueryClient();
     const navigate = usePanelNavigate();
     // All, You and Other list instances whatever their category; a category lists what the person put in it. Choosing
@@ -246,7 +255,7 @@ export default function DashboardPage({ model }: ReplacementProps<'dashboard.pag
                     <h1>Instances</h1>
                     <p>Everything you own or have been given access to.</p>
                 </div>
-                {model.rootAdmin && (
+                {rootAdmin && (
                     <div className={'gb-page-actions'}>
                         <button type={'button'} className={'gb-btn gb-btn-primary'} onClick={() => setCreating(true)}>
                             <Plus aria-hidden /> Create Instance

@@ -18,7 +18,7 @@ function Layout() {
 
     return (
         <>
-            <output data-testid={'console'}>{isConsole ? 'shown' : 'hidden'}</output>
+            <output data-testid='console'>{isConsole ? 'shown' : 'hidden'}</output>
             <Outlet />
         </>
     );
@@ -30,21 +30,26 @@ function mount(initialPath: string) {
         finishLoading = resolve;
     });
 
-    const rootRoute = createRootRoute({ component: Layout });
+    const rootRoute = createRootRoute();
+    const serverRoute = createRoute({ getParentRoute: () => rootRoute, path: '/server/$id', component: Layout });
     const router = createRouter({
         routeTree: rootRoute.addChildren([
-            createRoute({ getParentRoute: () => rootRoute, path: '/server/abc/', component: () => null }),
-            createRoute({
-                getParentRoute: () => rootRoute,
-                path: '/server/abc/files',
-                loader: () => loading,
-                component: () => <p>Files</p>,
-            }),
+            serverRoute.addChildren([
+                createRoute({ getParentRoute: () => serverRoute, path: '/', component: () => null }),
+                createRoute({
+                    getParentRoute: () => serverRoute,
+                    path: 'files',
+                    loader: () => loading,
+                    component: () => <p>Files</p>,
+                }),
+            ]),
         ]),
         history: createMemoryHistory({ initialEntries: [initialPath] }),
+        defaultNotFoundComponent: () => <p>Not Found</p>,
         // The page being left stays on screen while the next one loads, as in the panel.
         defaultPendingMs: 60_000,
     });
+
     render(<RouterProvider router={router} />);
 
     return { router, finishLoading };
@@ -52,6 +57,7 @@ function mount(initialPath: string) {
 
 it('follows the page the outlet renders rather than the location while a page loads', async () => {
     const { router, finishLoading } = mount('/server/abc');
+
     expect(await screen.findByText('shown')).toBeVisible();
 
     // Pushed through the history: `navigate` is typed against the panel's own routes.
@@ -72,4 +78,11 @@ it('ignores a trailing slash on either side', async () => {
     mount('/server/abc/');
 
     expect(await screen.findByText('shown')).toBeVisible();
+});
+
+it('is not rendered when the location matches no route', async () => {
+    mount('/server/abc/doesnotexist');
+
+    expect(await screen.findByText('Not Found')).toBeVisible();
+    expect(screen.getByTestId('console')).toHaveTextContent('hidden');
 });

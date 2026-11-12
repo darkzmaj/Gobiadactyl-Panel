@@ -7,32 +7,34 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 afterEach(cleanup);
 
 describe('Empty', () => {
-    it('renders each part with its slot and merges class names', () => {
+    it('renders each part with its skin attributes and merges class names', () => {
         const { container } = render(
-            <Empty className={'border md:p-8'} data-testid={'empty'}>
+            <Empty className='border md:p-8' data-testid='empty'>
                 <EmptyHeader>
-                    <EmptyMedia variant={'icon'}>
+                    <EmptyMedia variant='icon'>
                         <svg />
                     </EmptyMedia>
                     <EmptyTitle>No databases</EmptyTitle>
                     <EmptyDescription>
-                        Create one from <a href={'/'}>the panel</a>.
+                        Create one from <a href='/'>the panel</a>.
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
-                    <button type={'button'}>Create database</button>
+                    <button type='button'>Create database</button>
                 </EmptyContent>
             </Empty>
         );
 
         const root = screen.getByTestId('empty');
-        expect(root).toHaveAttribute('data-slot', 'empty');
+
+        expect(root).toHaveAttribute('data-ui', 'empty');
+        expect(root).toHaveAttribute('data-size', 'default');
         expect(root).toHaveClass('border', 'md:p-8', 'p-6');
         expect(root).not.toHaveClass('md:p-12');
         expect(
-            [...container.querySelectorAll('[data-slot]')].map((element) => element.getAttribute('data-slot'))
-        ).toEqual(['empty', 'empty-header', 'empty-icon', 'empty-title', 'empty-description', 'empty-content']);
-        expect(screen.getByText('No databases')).toHaveAttribute('data-slot', 'empty-title');
+            [...container.querySelectorAll('[data-ui="empty"]')].map((element) => element.getAttribute('data-part'))
+        ).toEqual(['root', 'header', 'media', 'title', 'description', 'content']);
+        expect(screen.getByText('No databases')).toHaveAttribute('data-part', 'title');
         expect(screen.getByRole('link', { name: 'the panel' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Create database' })).toBeInTheDocument();
     });
@@ -40,8 +42,8 @@ describe('Empty', () => {
     it('frames icons only for the icon media variant', () => {
         render(
             <>
-                <EmptyMedia data-testid={'default'} />
-                <EmptyMedia data-testid={'icon'} variant={'icon'} className={'size-12'} />
+                <EmptyMedia data-testid='default' />
+                <EmptyMedia data-testid='icon' variant='icon' className='size-12' />
             </>
         );
 
@@ -52,9 +54,11 @@ describe('Empty', () => {
         expect(screen.getByTestId('icon')).not.toHaveClass('size-10');
     });
 
-    it('lets callers override the slot attribute', () => {
-        render(<EmptyTitle data-slot={'custom-title'}>Title</EmptyTitle>);
+    it('tightens a compact empty state', () => {
+        render(<Empty size='compact' data-testid='empty' />);
 
-        expect(screen.getByText('Title')).toHaveAttribute('data-slot', 'custom-title');
+        expect(screen.getByTestId('empty')).toHaveClass('gap-4', 'md:p-8');
+        expect(screen.getByTestId('empty')).not.toHaveClass('gap-6', 'md:p-12');
+        expect(screen.getByTestId('empty')).toHaveAttribute('data-size', 'compact');
     });
 });

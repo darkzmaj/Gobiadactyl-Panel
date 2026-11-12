@@ -13,7 +13,6 @@ import Select from '@/components/ui/Select';
 import Label from '@/components/elements/Label';
 import Spinner from '@/components/elements/Spinner';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { emptyCompactClass } from '@/components/ui/styles';
 import { relationshipData } from '@/api/relationships';
 import { cn } from '@/lib/cn';
 
@@ -71,20 +70,20 @@ export default function AttachNodesModal({ mount, open, onClose, onAttached }: P
     return (
         <Dialog
             open={open}
-            title={'Attach nodes'}
+            title='Attach nodes'
             preventExternalClose={submitting}
             hideCloseIcon={submitting}
             onClose={onClose}
         >
             <SpinnerOverlay visible={submitting} />
             {locations === undefined ? (
-                <Spinner size={'large'} centered />
+                <Spinner size='large' centered />
             ) : (
                 <>
                     {groups.length === 0 ? (
-                        <Empty className={emptyCompactClass}>
+                        <Empty size='compact'>
                             <EmptyHeader>
-                                <EmptyMedia variant={'icon'}>
+                                <EmptyMedia variant='icon'>
                                     <HardDrive />
                                 </EmptyMedia>
                                 <EmptyTitle>{hasNodes ? 'All nodes attached' : 'No nodes yet'}</EmptyTitle>
@@ -100,7 +99,7 @@ export default function AttachNodesModal({ mount, open, onClose, onAttached }: P
                             <Label>Nodes</Label>
                             <Select
                                 multiple
-                                placeholder={'Select one or more nodes…'}
+                                placeholder='Select one or more nodes…'
                                 value={selected}
                                 onChange={(value) => setSelected((value as (string | number)[]).map(Number))}
                                 groups={groups.map((group) => ({
@@ -110,9 +109,9 @@ export default function AttachNodesModal({ mount, open, onClose, onAttached }: P
                             />
                         </>
                     )}
-                    <div className={'flex flex-wrap justify-end mt-6'}>
+                    <div className='flex flex-wrap justify-end mt-6'>
                         <Button
-                            type={'button'}
+                            type='button'
                             isSecondary
                             className={cn('w-full sm:w-auto', groups.length > 0 && 'sm:mr-2')}
                             onClick={onClose}
@@ -121,8 +120,8 @@ export default function AttachNodesModal({ mount, open, onClose, onAttached }: P
                         </Button>
                         {groups.length > 0 && (
                             <Button
-                                className={'w-full mt-4 sm:w-auto sm:mt-0'}
-                                type={'button'}
+                                className='w-full mt-4 sm:w-auto sm:mt-0'
+                                type='button'
                                 disabled={selected.length === 0}
                                 onClick={submit}
                             >

@@ -2,7 +2,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createMemoryHistory, createRouter } from '@tanstack/react-router';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { SiteExtensionEntry } from '@/extensions/loader';
+import type { SiteExtensionEntry } from '@/extensions/registry';
 
 const extensions: SiteExtensionEntry[] = [
     {
@@ -51,6 +51,7 @@ it(
 
         const { getAreaNav } = await import('@/router/nav');
         const tabs = getAreaNav('server');
+
         expect(tabs.find((tab) => tab.segment === 'votes')?.screen).toMatchObject({
             extensionId: 'healthy',
             id: 'main',
@@ -83,9 +84,11 @@ it('mounts extension tabs beneath the existing resource layouts and preserves co
 
     for (const resource of ['nodes', 'servers', 'eggs', 'users']) {
         const matches = router.matchRoutes(`/panel/${resource}/42/probe`);
+
         expect(matches.at(-1)?.pathname).toBe(`/panel/${resource}/42/probe`);
         expect(matches.at(-2)?.pathname).toBe(`/panel/${resource}/42`);
     }
+
     expect(router.matchRoutes('/panel/nodes/42/settings').at(-1)?.pathname).toBe('/panel/nodes/42/settings');
 });
 
@@ -126,22 +129,41 @@ async function loadRoute(path: string, options: { rootAdmin?: boolean; seed?: (c
     const { buildRouteTree } = await import('@/router/routeTree');
     const http = (await import('@/api/http')).default;
     const requests: string[] = [];
+
     http.defaults.adapter = async (config) => {
         requests.push(config.url ?? '');
         throw new Error(`unexpected request to ${config.url}`);
     };
+
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+
     options.seed?.(queryClient);
     const router = createRouter({
         routeTree: buildRouteTree([]),
         context: { queryClient },
         history: createMemoryHistory({ initialEntries: [path] }),
     });
+
     await router.load();
     delete (window as BootstrapWindow).PterodactylUser;
 
     return { router, requests, leaf: router.state.matches.at(-1)! };
 }
+
+it('sends guests to sign in with the page they asked for', { timeout: 20_000 }, async () => {
+    (window as BootstrapWindow).SiteConfiguration = { name: 'Panel', locale: 'en', recaptcha: { enabled: false } };
+    const { buildRouteTree } = await import('@/router/routeTree');
+    const router = createRouter({
+        routeTree: buildRouteTree([]),
+        context: { queryClient: new QueryClient() },
+        history: createMemoryHistory({ initialEntries: ['/panel/nodes/42/settings?tab=network'] }),
+    });
+
+    await router.load();
+
+    expect(router.state.location.pathname).toBe('/auth/login');
+    expect(router.state.location.search).toEqual({ redirect: '/panel/nodes/42/settings?tab=network' });
+});
 
 it('denies a server tab before its loader requests data the subuser cannot read', { timeout: 20_000 }, async () => {
     const { createTestServer } = await import('@/sdk/testing');
@@ -199,6 +221,7 @@ it('parses numeric route ids and treats anything else as not found', { timeout: 
 
     const params = (path: string, routeId: string) =>
         router.matchRoutes(path).find((match) => match.routeId === routeId)?.params;
+
     expect(params('/panel/nodes/42/settings', '/authenticated/panel/nodes/$id')).toMatchObject({ id: 42 });
     expect(params('/panel/eggs/7/variables', '/authenticated/panel/eggs/$eggId')).toMatchObject({ eggId: 7 });
     expect(params('/server/abc/schedules/3', '/authenticated/server/$id/schedules/$scheduleId')).toMatchObject({
@@ -208,4 +231,23 @@ it('parses numeric route ids and treats anything else as not found', { timeout: 
     expect(router.buildLocation({ to: '/panel/nodes/$id/settings', params: { id: 42 } }).pathname).toBe(
         '/panel/nodes/42/settings'
     );
+});
+
+it('sends the checkpoint back to sign in without the token the login hands over', { timeout: 20_000 }, async () => {
+    (window as BootstrapWindow).SiteConfiguration = { name: 'Panel', locale: 'en', recaptcha: { enabled: false } };
+    const { buildRouteTree } = await import('@/router/routeTree');
+    const router = createRouter({
+        routeTree: buildRouteTree([]),
+        context: { queryClient: new QueryClient() },
+        history: createMemoryHistory({ initialEntries: ['/auth/login/checkpoint?redirect=%2Fpanel'] }),
+    });
+
+    await router.load();
+
+    expect(router.state.location.pathname).toBe('/auth/login');
+    expect(router.state.location.search).toEqual({ redirect: '/panel' });
+
+    await router.navigate({ to: '/auth/login/checkpoint', state: { token: 'confirm-token' } });
+
+    expect(router.state.location.pathname).toBe('/auth/login/checkpoint');
 });

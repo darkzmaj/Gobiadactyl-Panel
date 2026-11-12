@@ -7,15 +7,20 @@ namespace Pterodactyl\Tests\Integration\Gobia;
 use GobiaCore\Services\NodeStatsService;
 use GobiaTemplates\Models\ServerTemplate;
 use GobiaTemplates\Services\TemplateService;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Mockery;
 use Pterodactyl\Models\Allocation;
 use Pterodactyl\Models\Egg;
 use Pterodactyl\Models\Location;
 use Pterodactyl\Models\Node;
 
-/** Helpers for tests that need templates, nodes with free allocations and controllable node health. */
+/**
+ * Helpers for tests that need templates, nodes with free allocations and controllable node health. Every row a test
+ * writes is rolled back, so no test sees what another left behind (IntegrationTestCase itself keeps rows).
+ */
 trait BuildsTemplates
 {
+    use DatabaseTransactions;
     use InstallsGobiaExtensions;
 
     /** @var array<int, string> */

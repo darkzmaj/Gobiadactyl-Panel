@@ -44,8 +44,6 @@ class ExtensionSettingsDefinition implements ManagesExtensionSettings
     /**
      * The setting's current value. A file setting reads as the public URL of
      * its uploaded file, or its default while nothing is uploaded.
-     *
-     * @return ExtensionSettingValue
      */
     public function get(string $key): mixed
     {
@@ -63,7 +61,7 @@ class ExtensionSettingsDefinition implements ManagesExtensionSettings
         return $definition->normalize($this->settings->get($definition->key, $definition->default));
     }
 
-    /** @return ExtensionSettingValues */
+    /** @return array<string, mixed> */
     public function publicSettings(): array
     {
         $values = [];
@@ -76,9 +74,8 @@ class ExtensionSettingsDefinition implements ManagesExtensionSettings
 
     /**
      * Rules for a partial update: every input is optional and, when submitted, must pass
-     * its definition's rules and those of its field type. Inputs without rules of their
-     * own are accepted as given. File inputs are prohibited: files are uploaded and
-     * cleared through replaceFile().
+     * its definition's rules and those of its field type. File inputs are prohibited:
+     * files are uploaded and cleared through replaceFile().
      *
      * @return NormalizedValidationRules
      */
@@ -92,7 +89,7 @@ class ExtensionSettingsDefinition implements ManagesExtensionSettings
         return $rules;
     }
 
-    /** @param ExtensionSettingValues $input */
+    /** @param array<string, mixed> $input */
     public function update(array $input): void
     {
         $input = $this->withoutBlankSecrets($input);
@@ -119,13 +116,16 @@ class ExtensionSettingsDefinition implements ManagesExtensionSettings
     }
 
     /**
-     * @param  ExtensionSettingValues  $input
-     * @return ExtensionSettingValues
+     * Drops secret inputs that would replace the stored value with nothing or with
+     * its own mask, whatever the field type, so they keep the stored value.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
      */
     public function withoutBlankSecrets(array $input): array
     {
         foreach ($this->definitions as $definition) {
-            if ($definition->isSecret() && in_array($input[$definition->input] ?? null, ['', null], true)) {
+            if ($definition->isSecret() && in_array($input[$definition->input] ?? null, ['', null, ExtensionSettingDefinition::MASK], true)) {
                 unset($input[$definition->input]);
             }
         }
@@ -180,7 +180,7 @@ class ExtensionSettingsDefinition implements ManagesExtensionSettings
      * are visible to every logged-in user. With $publicOnly, only those also
      * marked ->public(), which is what visitors who are not signed in receive.
      *
-     * @return ExtensionSettingValues
+     * @return array<string, mixed>
      */
     public function frontendConfig(bool $publicOnly = false): array
     {

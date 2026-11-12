@@ -6,20 +6,24 @@ namespace Pterodactyl\Extensions;
 
 use Closure;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Pterodactyl\Events\Server\OperationCompleted;
 use Pterodactyl\Exceptions\Extensions\InvalidExtensionException;
 use Pterodactyl\Http\Middleware\Activity\ServerSubject;
+use Pterodactyl\Http\Middleware\Api\Application\AuthorizeExtensionApplicationRequest;
 use Pterodactyl\Http\Middleware\Api\Client\Server\AuthenticateServerAccess;
+use Pterodactyl\Http\Middleware\Api\Client\Server\AuthenticateServerParameterAccess;
 use Pterodactyl\Http\Middleware\Api\Client\Server\ResourceBelongsToServer;
 use Pterodactyl\Http\Middleware\EnsureExtensionIsAvailable;
 use Pterodactyl\Http\Middleware\RequireTwoFactorAuthentication;
 use Pterodactyl\Services\Extensions\ExtensionActionDecorators;
 use Pterodactyl\Services\Extensions\ExtensionConsoleRegistry;
+use Pterodactyl\Services\Extensions\ExtensionFieldRegistry;
 use Pterodactyl\Services\Extensions\ExtensionHeadTags;
-use Pterodactyl\Services\Extensions\ExtensionManager;
 use Pterodactyl\Services\Extensions\ExtensionManifest;
 use Pterodactyl\Services\Extensions\ExtensionPermissionRegistry;
 use Pterodactyl\Services\Extensions\ExtensionRegistration;
@@ -34,17 +38,43 @@ use Throwable;
  * the curated backend API surface: routes mounted at the extension's namespaced
  * prefixes with the same middleware stacks core routes use, migrations, views,
  * translations, and typed per-extension settings.
- * Routes, operation listeners, action wrappers, commands, schedules, head tags, settings
+ * Routes (including `Route::bind`, `Route::model` and `Route::pattern` calls in route
+ * files), operation listeners, action wrappers, commands, schedules, head tags, settings
  * and permissions activate after successful provider boot. Direct container mutations
  * and other PHP side effects are not staged.
+ *
+ * When register() or boot() throws, the extension is recorded as failed: nothing staged
+ * through these helpers activates, and routes added directly with the Route facade are
+ * removed again unless the panel's routes are cached. Everything else the provider did
+ * before it threw stays in effect for the rest of the process, because neither PHP nor
+ * Laravel can undo it: its classes stay loaded, Laravel keeps the provider instance in its
+ * provider list, and container bindings and extenders, event listeners (view composers
+ * and model observers included), gates, macros, middleware aliases, and commands or
+ * schedules added without these helpers keep working. The provider is loaded again by the
+ * next request or worker, so a provider that keeps failing leaves the same side effects
+ * behind each time.
  */
 abstract class ExtensionProvider extends ServiceProvider
 {
+    protected ExtensionManifest $extension;
+
     private ?ExtensionRegistration $registration = null;
 
-    public function __construct($app, protected ExtensionManifest $extension)
+    /**
+     * The panel's loader passes the manifest. Laravel constructs a provider from the
+     * application alone, as `$app->register(BillingProvider::class)` in a test does, and the
+     * manifest is then the one of the installed extension that declares this provider.
+     *
+     * @param  Application  $app
+     *
+     * @throws InvalidExtensionException
+     */
+    public function __construct($app, ?ExtensionManifest $extension = null)
     {
         parent::__construct($app);
+        $this->extension = $extension
+            ?? $this->app->make(ExtensionRepository::class)->discovered()->first(fn (ExtensionManifest $manifest): bool => $manifest->provider !== null && strcasecmp(mb_ltrim($manifest->provider, '\\'), static::class) === 0)
+            ?? throw new InvalidExtensionException(sprintf('No installed extension declares %s as its provider.', static::class));
     }
 
     final public function beginRegistration(): void
@@ -76,19 +106,26 @@ abstract class ExtensionProvider extends ServiceProvider
     /**
      * Mount a route file at /api/client/extensions/<id> with the client API
      * middleware stack (session/API-key auth, 2FA requirement, client throttle).
+     * A route that declares a {server} parameter gets the same access and scoping
+     * checks as server routes: the user must own the server, be one of its subusers
+     * or be a root admin, otherwise the request is answered with a 404.
      */
     protected function registerClientApiRoutes(string $path): void
     {
-        $this->registerRouteFile($path, ['api', RequireTwoFactorAuthentication::class, 'client-api', 'throttle:api.client'], '/api/client/extensions/'.$this->id(), 'client');
+        $this->registerRouteFile($path, ['api', RequireTwoFactorAuthentication::class, 'client-api', 'throttle:api.client', AuthenticateServerParameterAccess::class], '/api/client/extensions/'.$this->id(), 'client');
     }
 
     /**
      * Mount a route file at /api/application/extensions/<id> with the application
-     * API middleware stack.
+     * API middleware stack. Extension routes have no API key resource of their own,
+     * so an application API key must grant read access to every resource for GET,
+     * HEAD and OPTIONS requests and write access to every resource for any other
+     * method, otherwise the request is refused with a 403. Root admins using the
+     * panel session or an account API key pass, as they do on core endpoints.
      */
     protected function registerApplicationApiRoutes(string $path): void
     {
-        $this->registerRouteFile($path, ['api', RequireTwoFactorAuthentication::class, 'application-api', 'throttle:api.application'], '/api/application/extensions/'.$this->id(), 'application');
+        $this->registerRouteFile($path, ['api', RequireTwoFactorAuthentication::class, 'application-api', 'throttle:api.application', AuthorizeExtensionApplicationRequest::class], '/api/application/extensions/'.$this->id(), 'application');
     }
 
     /**
@@ -97,6 +134,12 @@ abstract class ExtensionProvider extends ServiceProvider
      * server subject/access/scoping middleware core server routes use. Routes in
      * the file receive the resolved server via route-model binding - type-hint
      * Pterodactyl\Models\Server on controller actions.
+     *
+     * The stack only checks that the user can see the server: the owner, root
+     * admins and every subuser pass, whatever permissions the subuser holds. As on
+     * core endpoints, each route must check its own permission, for example
+     * `$request->user()->can('ext.<id>.<key>', $server)` for a key registered with
+     * registerPermissions(), or a core permission.
      */
     protected function registerServerApiRoutes(string $path): void
     {
@@ -180,7 +223,11 @@ abstract class ExtensionProvider extends ServiceProvider
         }
     }
 
-    /** Register the extension's database/migrations directory with the migrator. */
+    /**
+     * Register the extension's database/migrations directory with the migrator. The panel
+     * already does this for every enabled extension, since enabling one runs its migrations;
+     * calling it again changes nothing.
+     */
     protected function loadExtensionMigrations(): void
     {
         $this->loadMigrationsFrom($this->extensionPath('database', 'migrations'));
@@ -242,6 +289,11 @@ abstract class ExtensionProvider extends ServiceProvider
      * decorator that throws or returns anything else is recorded and skipped, so the core
      * action always stays resolvable. Extensions wrap in load order; the last is outermost.
      *
+     * The contracts under `Pterodactyl\Contracts\Extensions\` and `Pterodactyl\Contracts\Themes\`
+     * (installing, enabling, disabling, removing and configuring extensions, applying themes)
+     * cannot be wrapped: asking for one fails the provider's boot like any other contract
+     * that cannot be wrapped.
+     *
      * @template TContract of object
      *
      * @param  class-string<TContract>  $contract
@@ -257,8 +309,9 @@ abstract class ExtensionProvider extends ServiceProvider
 
     /**
      * Register artisan commands. They exist only while the extension is enabled and
-     * booted successfully; prefix their names with the extension id (`<id>:clean`) so
-     * they cannot shadow a core command.
+     * booted successfully. A command's name and aliases must start with the extension id
+     * (`<id>:clean`) and must not already exist: a command that breaks either rule is
+     * left out and recorded against the extension.
      *
      * @param  list<class-string>  $classes
      */
@@ -308,7 +361,7 @@ abstract class ExtensionProvider extends ServiceProvider
     /** Typed key/value settings scoped to this extension. */
     protected function settings(): ExtensionSettings
     {
-        return $this->app->make(ExtensionManager::class)->settings($this->id());
+        return $this->app->make(ExtensionRepository::class)->settings($this->id());
     }
 
     /**
@@ -323,6 +376,23 @@ abstract class ExtensionProvider extends ServiceProvider
     {
         $this->registration()->defer(function () use ($definition): void {
             $this->app->make(ExtensionSettingsRegistry::class)->register($this->id(), $definition);
+        });
+    }
+
+    /**
+     * Add fields to the admin create and edit forms of a model:
+     * `$this->registerFields(User::class, UserRole::class)`. See Fields for what the class
+     * declares. Users, servers, nodes, eggs, locations, mounts and database hosts accept
+     * fields; an extension registers one Fields class per model.
+     *
+     * @param  class-string<Model>  $model
+     * @param  class-string<Fields>  $fields
+     */
+    protected function registerFields(string $model, string $fields): void
+    {
+        $registration = $this->registration();
+        $registration->defer(function () use ($model, $fields, $registration): void {
+            $this->app->make(ExtensionFieldRegistry::class)->register($this->id(), $model, $fields, $registration);
         });
     }
 

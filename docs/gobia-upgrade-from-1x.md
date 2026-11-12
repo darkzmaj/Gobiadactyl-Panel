@@ -27,7 +27,7 @@ Take a database backup and a copy of `storage/` first. Rolling back means restor
 
 1. Put the 2.0 files in place (the release artifact), keep `.env` and `storage/`.
 2. `php artisan migrate --force` runs the Pterodactyl 2.0 core migrations on the 1.x database.
-3. `php artisan p:theme:apply gobia`
+3. `php artisan p:extension:enable gobia-theme` and `php artisan p:theme:activate gobia-theme`
 4. Enable the extensions, Gobia Core first: `php artisan p:extension:enable gobia-core`, then `gobia-templates`, then `gobia-files`.
    Enabling creates their tables.
 5. Check what will be copied (changes nothing):

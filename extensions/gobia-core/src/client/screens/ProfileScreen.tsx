@@ -56,10 +56,8 @@ export default function ProfileScreen() {
                 </div>
             </div>
             <div className={'grid grid-cols-1 gap-4 xl:grid-cols-2'}>
-                <ContentBox
-                    title={'Profile Picture'}
-                    description={'Any image works. You crop it to a square before saving.'}
-                >
+                <ContentBox title={'Profile Picture'}>
+                    <p className={'gb-card-sub'}>Any image works. You crop it to a square before saving.</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
                         <div
                             aria-hidden
@@ -107,10 +105,8 @@ export default function ProfileScreen() {
                     </div>
                 </ContentBox>
 
-                <ContentBox
-                    title={'Username'}
-                    description={'Used to sign in and shown to people you share instances with.'}
-                >
+                <ContentBox title={'Username'}>
+                    <p className={'gb-card-sub'}>Used to sign in and shown to people you share instances with.</p>
                     <form onSubmit={submitRename}>
                         <Label htmlFor={'gobia-username'}>Username</Label>
                         <Input

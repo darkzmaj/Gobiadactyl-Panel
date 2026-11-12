@@ -1,0 +1,25 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "gobia-theme",
+    "type": "theme",
+    "name": "Gobia",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-beta.6 <3.0"
+    },
+    "description": "The Gobia look: sidebar shell, sign-in screen, colours, type and components.",
+    "author": "Gobia",
+    "icon": "palette",
+    "ui": {
+        "entry": "dist/client.js"
+    },
+    "theme": {
+        "extends": "classic",
+        "stylesheet": "dist/theme.css",
+        "schemes": [
+            "dark",
+            "light"
+        ]
+    }
+}

@@ -9,18 +9,22 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use InvalidArgumentException;
 use Pterodactyl\Rules\ValidExtensionSettingColor;
+use Pterodactyl\Rules\ValidExtensionSettingType;
 
 class ExtensionSettingDefinition
 {
     public const array FIELDS = ['text', 'password', 'number', 'toggle', 'select', 'color', 'textarea', 'multiselect', 'list', 'file'];
 
+    /** What a stored secret reads as in admin output; submitting it back keeps the stored value. */
+    public const string MASK = '********';
+
     /** Fields whose values are structured or stored elsewhere; these cannot be ->secret(). */
     private const array RICH_FIELDS = ['color', 'textarea', 'multiselect', 'list', 'file'];
 
-    /** @var (Closure(ExtensionSettingValue): ExtensionSettingValue)|null */
+    /** @var (Closure(mixed): mixed)|null */
     private ?Closure $normalizer = null;
 
-    /** @var (Closure(ExtensionSettingValue): ExtensionSettingValue)|null */
+    /** @var (Closure(mixed): mixed)|null */
     private ?Closure $publicSerializer = null;
 
     private ?string $label = null;
@@ -56,7 +60,6 @@ class ExtensionSettingDefinition
     private array $mimes = [];
 
     /**
-     * @param  ExtensionSettingValue  $default
      * @param  ValidationRuleSet  $rules
      */
     public function __construct(
@@ -68,7 +71,6 @@ class ExtensionSettingDefinition
     ) {}
 
     /**
-     * @param  ExtensionSettingValue  $default
      * @param  ValidationRuleSet  $rules
      */
     public static function make(string $key, string $input, mixed $default, array $rules = [], ?string $public = null): self
@@ -76,7 +78,7 @@ class ExtensionSettingDefinition
         return new self($key, $input, $default, $rules, $public);
     }
 
-    /** @param callable(ExtensionSettingValue): ExtensionSettingValue $normalizer */
+    /** @param callable(mixed): mixed $normalizer */
     public function normalizeUsing(callable $normalizer): self
     {
         $this->normalizer = $normalizer instanceof Closure ? $normalizer : Closure::fromCallable($normalizer);
@@ -84,7 +86,7 @@ class ExtensionSettingDefinition
         return $this;
     }
 
-    /** @param callable(ExtensionSettingValue): ExtensionSettingValue $serializer */
+    /** @param callable(mixed): mixed $serializer */
     public function publicUsing(callable $serializer): self
     {
         $this->publicSerializer = $serializer instanceof Closure ? $serializer : Closure::fromCallable($serializer);
@@ -127,7 +129,9 @@ class ExtensionSettingDefinition
      * text, password, number, toggle, select, color, textarea, multiselect,
      * list, file. The last five have their own methods (color(), textarea(),
      * multiselect(), list(), file()) which also take their limits; naming them
-     * here applies the defaults.
+     * here applies the defaults. A password field is always secret(). Submitted
+     * values must match the field's type: text (a string or number), a number,
+     * a boolean toggle, or one of the select options; null is always accepted.
      *
      * @param  list<array{value: string|int|bool, label: string}>  $options  select or multiselect choices
      */
@@ -138,11 +142,13 @@ class ExtensionSettingDefinition
         }
 
         return match ($field) {
+            'password' => $this->secret(),
             'color' => $this->color(),
             'textarea' => $this->textarea(),
             'multiselect' => $this->multiselect($options),
             'list' => $this->list(),
             'file' => $this->file(),
+            'number', 'toggle', 'select' => $this->scalarField($field, $options),
             default => $this->useField($field, $options),
         };
     }
@@ -223,11 +229,11 @@ class ExtensionSettingDefinition
     /**
      * Expose this setting's public value to the extension's frontend bundle via
      * ctx.config. Off by default - frontend values are visible to every logged-in
-     * user, so never mark secrets (even masked ones) unless that is intended.
+     * user, so secret and password settings cannot be exposed.
      */
     public function frontend(bool $frontend = true): self
     {
-        throw_if($frontend && $this->secret, InvalidArgumentException::class, 'Secret extension settings cannot be exposed to frontend bundles.');
+        throw_if($frontend && $this->secret, InvalidArgumentException::class, 'Secret and password extension settings cannot be exposed to frontend bundles.');
         throw_if(! $frontend && $this->guests, InvalidArgumentException::class, 'Public extension settings must stay exposed to frontend bundles.');
         $this->frontend = $frontend;
 
@@ -248,9 +254,15 @@ class ExtensionSettingDefinition
         return $this;
     }
 
+    /**
+     * Encrypt the stored value, show it as MASK in admin output and keep it out of
+     * frontend bundles. Submitting the mask, an empty value or nothing keeps the
+     * stored value. The form shows a password control unless a text, number, toggle
+     * or select field is named afterwards; the setting stays secret either way.
+     */
     public function secret(): self
     {
-        throw_if($this->frontend, InvalidArgumentException::class, 'Secret extension settings cannot be exposed to frontend bundles.');
+        throw_if($this->frontend, InvalidArgumentException::class, 'Secret and password extension settings cannot be exposed to frontend bundles.');
         throw_if(in_array($this->field, self::RICH_FIELDS, true), InvalidArgumentException::class, sprintf('A %s extension setting cannot be secret.', $this->field));
         $this->secret = true;
         $this->field = 'password';
@@ -310,7 +322,7 @@ class ExtensionSettingDefinition
     /**
      * Rules for a partial update, keyed by input name: the input is optional
      * and, when submitted, must pass the definition's rules and those of its
-     * field type. Inputs without rules of their own are accepted as given.
+     * field type.
      *
      * @return NormalizedValidationRules
      */
@@ -330,16 +342,13 @@ class ExtensionSettingDefinition
                 $this->input.'.*' => ['string', ...$this->itemRules],
             ],
             'file' => [$this->input => ['prohibited']],
-            default => [$this->input => $rules],
+            default => [$this->input => [...$rules, new ValidExtensionSettingType($this->field, array_column($this->options, 'value'))]],
         };
     }
 
     /**
      * Coerce a submitted or stored value to the field type's shape, then apply
      * normalizeUsing(). A value that does not fit falls back to the default.
-     *
-     * @param  ExtensionSettingValue  $value
-     * @return ExtensionSettingValue
      */
     public function normalize(mixed $value): mixed
     {
@@ -354,14 +363,10 @@ class ExtensionSettingDefinition
         return $this->normalizer instanceof Closure ? ($this->normalizer)($value) : $value;
     }
 
-    /**
-     * @param  ExtensionSettingValue  $value
-     * @return ExtensionSettingValue
-     */
     public function serializePublic(mixed $value): mixed
     {
         if ($this->secret) {
-            return $value === null || $value === '' ? null : '********';
+            return $value === null || $value === '' ? null : self::MASK;
         }
 
         return $this->publicSerializer instanceof Closure ? ($this->publicSerializer)($value) : $value;
@@ -374,11 +379,10 @@ class ExtensionSettingDefinition
 
     /**
      * Schema entry for the auto-rendered admin settings form. `value` is the
-     * current public serialization; secrets serialized through publicUsing()
-     * therefore stay masked here too. `constraints` carries the limits the
-     * field's control enforces up front, and `visibility` who receives the value.
+     * current public serialization, so secrets read as MASK here too.
+     * `constraints` carries the limits the field's control enforces up front,
+     * and `visibility` who receives the value.
      *
-     * @param  ExtensionSettingValue  $currentValue
      * @return ExtensionSettingField
      */
     public function describe(mixed $currentValue): array
@@ -403,6 +407,23 @@ class ExtensionSettingDefinition
                 default => 'admin',
             },
         ];
+    }
+
+    /**
+     * A number, toggle or select field, whose default has to pass the same type
+     * check as a submitted value so the untouched form always saves.
+     *
+     * @param  list<array{value: string|int|bool, label: string}>  $options
+     */
+    private function scalarField(string $field, array $options): self
+    {
+        throw_unless(ExtensionSettingValueGuard::fitsField($field, $this->default, array_column($options, 'value')), InvalidArgumentException::class, match ($field) {
+            'number' => 'A number setting defaults to a number or null.',
+            'toggle' => 'A toggle setting defaults to true, false or null.',
+            default => 'A select setting defaults to one of its options or null.',
+        });
+
+        return $this->useField($field, $options);
     }
 
     /** @param list<array{value: string|int|bool, label: string}> $options */

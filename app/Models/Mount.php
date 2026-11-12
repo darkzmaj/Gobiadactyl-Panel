@@ -9,25 +9,12 @@ use Illuminate\Database\Eloquent\Attributes\Guarded;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Str;
 use Pterodactyl\Contracts\Models\Identifiable;
 use Pterodactyl\Models\Traits\HasRealtimeIdentifier;
 
-/**
- * @property int $id
- * @property string $uuid
- * @property string $name
- * @property string $description
- * @property string $source
- * @property string $target
- * @property bool $read_only
- * @property bool $user_mountable
- * @property Egg[]|Collection $eggs
- * @property Node[]|Collection $nodes
- * @property Server[]|Collection $servers
- */
 #[Attributes\Identifiable('moun')]
 #[Guarded(['id', 'uuid'])]
 #[WithoutTimestamps]
@@ -38,15 +25,9 @@ class Mount extends Model implements Identifiable
 
     use HasRealtimeIdentifier;
 
-    /**
-     * The resource name for this model when it is transformed into an
-     * API representation using fractal.
-     */
     public const string RESOURCE_NAME = 'mount';
 
     /**
-     * Blacklisted source paths.
-     *
      * @var list<string>
      */
     public static array $invalidSourcePaths = [
@@ -56,8 +37,15 @@ class Mount extends Model implements Identifiable
     ];
 
     /**
-     * Blacklisted target paths.
+     * Source paths that cannot be mounted, nor anything beneath them.
      *
+     * @var list<string>
+     */
+    public static array $protectedSourcePaths = [
+        '/etc/pterodactyl',
+    ];
+
+    /**
      * @var list<string>
      */
     public static array $invalidTargetPaths = [
@@ -77,8 +65,31 @@ class Mount extends Model implements Identifiable
     }
 
     /**
-     * Returns all eggs that have this mount assigned.
-     *
+     * Normalizes an absolute path string by resolving '.', '..', and duplicate slashes
+     * without requiring the path to exist on the host filesystem.
+     */
+    public static function normalizePath(string $path): string
+    {
+        $parts = [];
+
+        foreach (Str::of($path)->trim('/')->explode('/') as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment === '..') {
+                array_pop($parts);
+
+                continue;
+            }
+
+            $parts[] = $segment;
+        }
+
+        return '/'.implode('/', $parts);
+    }
+
+    /**
      * @return BelongsToMany<Egg, $this>
      */
     public function eggs(): BelongsToMany
@@ -87,8 +98,6 @@ class Mount extends Model implements Identifiable
     }
 
     /**
-     * Returns all nodes that have this mount assigned.
-     *
      * @return BelongsToMany<Node, $this>
      */
     public function nodes(): BelongsToMany
@@ -97,8 +106,6 @@ class Mount extends Model implements Identifiable
     }
 
     /**
-     * Returns all servers that have this mount assigned.
-     *
      * @return BelongsToMany<Server, $this>
      */
     public function servers(): BelongsToMany

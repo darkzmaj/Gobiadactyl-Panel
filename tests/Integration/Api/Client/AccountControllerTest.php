@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Pterodactyl\Tests\Pest\Integration\Api\Client\AccountControllerTest;
 
 use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Pterodactyl\Jobs\RevokeSftpAccessJob;
 use Pterodactyl\Models\Subuser;
@@ -19,6 +21,41 @@ test('account details are returned', function (): void {
     $user = User::factory()->create();
     $response = $this->actingAs($user)->get('/api/client/account');
     $response->assertOk()->assertJson(['object' => 'user', 'attributes' => ['id' => $user->id, 'admin' => false, 'username' => $user->username, 'email' => $user->email, 'first_name' => $user->name_first, 'last_name' => $user->name_last, 'language' => $user->language]]);
+});
+test('avatars can only be uploaded while the panel allows them', function (bool $enabled): void {
+    config()->set('pterodactyl.client_features.avatars.enabled', $enabled);
+    Storage::fake(config()->string('extensions.files_disk'));
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->post('/api/client/account/avatar', ['avatar' => UploadedFile::fake()->image('avatar.png')], ['Accept' => 'application/json']);
+
+    $response->assertStatus($enabled ? Response::HTTP_OK : Response::HTTP_FORBIDDEN);
+    expect($user->fresh()->avatar !== null)->toBe($enabled);
+})->with([true, false]);
+test('avatar changes are logged and the old file is removed', function (): void {
+    config()->set('pterodactyl.client_features.avatars.enabled', true);
+    $disk = Storage::fake(config()->string('extensions.files_disk'));
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->post('/api/client/account/avatar', ['avatar' => UploadedFile::fake()->image('avatar.png')], ['Accept' => 'application/json'])->assertOk();
+    $first = $user->fresh()->avatar;
+    $this->actingAs($user)->post('/api/client/account/avatar', ['avatar' => UploadedFile::fake()->image('avatar.png')], ['Accept' => 'application/json'])->assertOk();
+
+    $disk->assertMissing("extension-files/user-avatars/{$first}");
+    $disk->assertExists("extension-files/user-avatars/{$user->fresh()->avatar}");
+    $this->assertActivityLogged('user:account.avatar-changed');
+});
+test('avatars can be removed after the panel stops accepting them', function (): void {
+    $disk = Storage::fake(config()->string('extensions.files_disk'));
+    config()->set('pterodactyl.client_features.avatars.enabled', true);
+    $user = User::factory()->create();
+    $this->actingAs($user)->post('/api/client/account/avatar', ['avatar' => UploadedFile::fake()->image('avatar.png')], ['Accept' => 'application/json'])->assertOk();
+    config()->set('pterodactyl.client_features.avatars.enabled', false);
+
+    $this->actingAs($user)->deleteJson('/api/client/account/avatar')->assertNoContent();
+
+    expect($user->fresh()->avatar)->toBeNull()->and($disk->allFiles())->toBe([]);
+    $this->assertActivityFor('user:account.avatar-deleted', $user, $user);
 });
 test('email is updated', function (): void {
     $user = User::factory()->create();
@@ -45,6 +82,18 @@ test('email is not updated when password is invalid', function (): void {
     $response->assertStatus(Response::HTTP_BAD_REQUEST);
     $response->assertJsonPath('errors.0.code', 'InvalidPasswordProvidedException');
     $response->assertJsonPath('errors.0.detail', 'The password provided was invalid for this account.');
+});
+test('email change only reveals that an address is taken to someone with the password', function (): void {
+    $user = User::factory()->create();
+    $other = User::factory()->create();
+
+    $this->actingAs($user)->putJson('/api/client/account/email', ['email' => $other->email, 'password' => 'invalid'])
+        ->assertStatus(Response::HTTP_BAD_REQUEST)
+        ->assertJsonPath('errors.0.code', 'InvalidPasswordProvidedException');
+
+    $this->actingAs($user)->putJson('/api/client/account/email', ['email' => $other->email, 'password' => 'password'])
+        ->assertUnprocessable()
+        ->assertJsonPath('errors.0.meta.rule', 'unique');
 });
 test('email is not updated when not valid', function (): void {
     /** @var User $user */

@@ -74,7 +74,7 @@ Verified by running code, not by reading:
 | Slot failure isolation | works: a slot that always throws is reported and the dashboard still renders | headless browser, console shows attribution to `audit-probe` |
 | Component replacement (`dashboard.serverCard`) | works | headless browser (extension class present on the card) |
 | Lazy loading | works: screens ship as separate chunks, entry is about 2.3 kB | build output |
-| Theme tokens (`p:theme:apply`) | works: colour roles, radius, fonts, layout widths, assets published to `/assets/theme/` | screenshots dark and light |
+| Themes (`p:theme:activate`, since the 2026-11-12 sync) | works: a theme extension with tokens, skins and views; Gobia is `extensions/gobia-theme` | screenshots dark and light |
 | Admin area location | `/panel` (not `/admin`) | router |
 | Light/dark selection | upstream forces `<html class="dark">` and has no switcher; Gobia toggles the class from an extension | `gobia-core` Appearance |
 

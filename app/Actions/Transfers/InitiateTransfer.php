@@ -6,6 +6,11 @@ namespace Pterodactyl\Actions\Transfers;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator as ValidatorFactory;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Validator;
+use Pterodactyl\Contracts\Transfers\FailsTransfers;
 use Pterodactyl\Contracts\Transfers\InitiatesTransfers;
 use Pterodactyl\Enum\JwtScope;
 use Pterodactyl\Exceptions\DisplayException;
@@ -14,27 +19,63 @@ use Pterodactyl\Models\Allocation;
 use Pterodactyl\Models\Node;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\ServerTransfer;
-use Pterodactyl\Services\Nodes\NodeJWTService;
+use Pterodactyl\Services\Nodes\NodeJwt;
+use Pterodactyl\Validation\Concerns\ValidatesArrayExistence;
 use Throwable;
 
 final readonly class InitiateTransfer implements InitiatesTransfers
 {
-    public function __construct(
-        private NodeJWTService $nodeJWTService,
-    ) {}
+    use ValidatesArrayExistence;
+
+    public function __construct(private NodeJwt $jwt, private FailsTransfers $failTransfer) {}
 
     /**
-     * Records the transfer, reserves the target allocations, and tells the destination
-     * node to begin pulling the server.
+     * Once these pass, validateAllocations() checks the allocations are free and on the node.
      *
-     * @param  list<int>  $additionalAllocations
-     *
-     * @throws DisplayException
-     * @throws Throwable
+     * @return NormalizedValidationRules
      */
+    public static function rules(Server $server): array
+    {
+        return [
+            'node_id' => ['required', 'integer', 'exists:nodes,id', Rule::notIn([$server->node_id])],
+            'allocation_id' => ['required', 'bail', 'unique:servers', 'exists:allocations,id'],
+            'allocation_additional' => ['nullable', 'array', 'list'],
+            'allocation_additional.*' => ['required', Rule::anyOf([['integer:strict'], ['string']]), 'integer'],
+        ];
+    }
+
+    /**
+     * Once the rules pass, adds an allocation_id error unless every allocation chosen is
+     * unassigned and on the target node. They are counted in one query.
+     */
+    public static function validateAllocations(Validator $validator): void
+    {
+        if ($validator->errors()->isNotEmpty()) {
+            return;
+        }
+
+        $input = $validator->safe();
+        $ids = array_unique([
+            $input->integer('allocation_id'),
+            ...array_map(fn (int|string $key): int => $input->integer('allocation_additional.'.$key), array_keys($input->array('allocation_additional'))),
+        ]);
+
+        $count = Allocation::query()
+            ->whereIn('id', $ids)
+            ->where('node_id', $input->integer('node_id'))
+            ->whereNull('server_id')
+            ->count();
+
+        if ($count !== count($ids)) {
+            $validator->errors()->add('allocation_id', 'The selected allocation must be an unassigned allocation on the target node.');
+        }
+    }
+
     public function initiate(Server $server, Node $node, int $allocationId, array $additionalAllocations): ServerTransfer
     {
-        return DB::transaction(function () use ($server, $node, $allocationId, $additionalAllocations): ServerTransfer {
+        $additionalAllocations = $this->additionalAllocations($server, $node, $allocationId, $additionalAllocations);
+
+        $transfer = DB::transaction(function () use ($server, $node, $allocationId, $additionalAllocations): ServerTransfer {
             $server = $server->newQuery()->whereKey($server->getKey())->lockForUpdate()->firstOrFail();
             throw_unless($node->isViable($server->memory, $server->disk), DisplayException::class, trans('admin/server.alerts.transfer_not_viable'));
             $server->validateTransferState();
@@ -67,15 +108,51 @@ final readonly class InitiateTransfer implements InitiatesTransfers
             // Assign now so another server can't claim these allocations mid-transfer.
             Allocation::query()->whereKey($allocationIds)->update(['server_id' => $server->id]);
 
-            $token = $this->nodeJWTService
-                ->setExpiresAt(CarbonImmutable::now()->addMinutes(15))
-                ->setSubject($server->uuid)
-                ->setScopes(JwtScope::ServerTransfer)
-                ->handle($node, $server->uuid);
+            return $transfer;
+        });
+
+        try {
+            $token = $this->jwt->issue(
+                $node,
+                JwtScope::ServerTransfer,
+                identifiedBy: $server->uuid,
+                expiresAt: CarbonImmutable::now()->addMinutes(15),
+                subject: $server->uuid,
+            );
 
             Daemon::server($server)->transfer($node, $token);
+        } catch (Throwable $throwable) {
+            $this->failTransfer->fail($transfer);
 
-            return $transfer->refresh();
+            throw $throwable;
+        }
+
+        return $transfer->refresh();
+    }
+
+    /**
+     * Missing additional allocations fail `allocation_additional.N` as an exists rule would, all
+     * looked up in one query.
+     *
+     * @param  list<int>  $additionalAllocations
+     * @return list<int>
+     *
+     * @throws ValidationException
+     */
+    private function additionalAllocations(Server $server, Node $node, int $allocationId, array $additionalAllocations): array
+    {
+        $validator = ValidatorFactory::make([
+            'node_id' => $node->id,
+            'allocation_id' => $allocationId,
+            'allocation_additional' => $additionalAllocations,
+        ], self::rules($server));
+        $validator->after(function () use ($validator): void {
+            $this->validateArrayExistence($validator, 'allocation_additional', Allocation::query());
+            self::validateAllocations($validator);
         });
+
+        $input = $validator->safe();
+
+        return array_map(fn (int|string $key): int => $input->integer('allocation_additional.'.$key), array_keys($input->array('allocation_additional')));
     }
 }

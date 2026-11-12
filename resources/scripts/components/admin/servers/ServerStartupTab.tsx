@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useStore } from '@tanstack/react-form';
 import { Variable } from 'lucide-react';
 import type { AppForm } from '@/components/form';
@@ -15,13 +15,14 @@ import {
 import { serverStartupBodyFromFormValues, type ServerStartupValues } from '@/components/admin/servers/helpers';
 import { type AdminEggListItem, useAdminEggs } from '@/api/admin/eggs/queries';
 import { useServerDetail } from '@/components/admin/servers/useServerDetail';
+import TagCheckAlert from '@/components/admin/tags/TagCheckAlert';
+import { tagCheckError, type TagCheckMeta } from '@/components/admin/tags/helpers';
 import TitledGreyBox from '@/components/elements/TitledGreyBox';
 import Label from '@/components/elements/Label';
 import Code from '@/components/elements/Code';
 import { TextInput } from '@/components/form/controls';
 import { ServerError } from '@/components/elements/ScreenBlock';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { emptyCompactClass } from '@/components/ui/styles';
 import { relationshipData } from '@/api/relationships';
 
 interface Props {
@@ -39,9 +40,10 @@ interface Values {
 
 const serverToValues = (server: AdminServer): Values => {
     const environment: Record<string, string> = {};
-    relationshipData(server.attributes.relationships?.variables).forEach(({ attributes }) => {
+
+    for (const { attributes } of relationshipData(server.attributes.relationships?.variables)) {
         environment[attributes.env_variable] = attributes.server_value ?? attributes.default_value ?? '';
-    });
+    }
 
     return {
         startup: server.attributes.container.startup_command,
@@ -53,7 +55,7 @@ const serverToValues = (server: AdminServer): Values => {
     };
 };
 
-const EnvironmentVariables = ({ form, egg }: { form: AppForm<Values>; egg: EggForServer | null }) => {
+const EnvironmentVariables = ({ form, egg }: { form: AppForm<Values, TagCheckMeta>; egg: EggForServer | null }) => {
     if (!egg) {
         return null;
     }
@@ -62,10 +64,10 @@ const EnvironmentVariables = ({ form, egg }: { form: AppForm<Values>; egg: EggFo
 
     if (variables.length === 0) {
         return (
-            <TitledGreyBox title={'Service Variables'}>
-                <Empty className={emptyCompactClass}>
+            <TitledGreyBox title='Service Variables'>
+                <Empty size='compact'>
                     <EmptyHeader>
-                        <EmptyMedia variant={'icon'}>
+                        <EmptyMedia variant='icon'>
                             <Variable />
                         </EmptyMedia>
                         <EmptyTitle>No variables</EmptyTitle>
@@ -77,25 +79,25 @@ const EnvironmentVariables = ({ form, egg }: { form: AppForm<Values>; egg: EggFo
     }
 
     return (
-        <div className={'space-y-6'}>
+        <div className='space-y-6'>
             {variables.map(({ attributes }) => (
                 <TitledGreyBox key={attributes.id} title={attributes.name}>
                     <form.AppField name={`environment.${attributes.env_variable}`}>
                         {(field) => (
                             <field.TextField
-                                type={'text'}
+                                type='text'
                                 id={`environment_${attributes.env_variable}`}
                                 description={attributes.description}
                             />
                         )}
                     </form.AppField>
-                    <div className={'mt-3 text-xs text-muted-foreground space-y-1'}>
+                    <div className='mt-3 text-xs text-muted-foreground space-y-1'>
                         <p>
                             <strong>Startup Variable:</strong> <Code>{attributes.env_variable}</Code>
                         </p>
                         {attributes.rules && (
                             <p>
-                                <strong>Input Rules:</strong> <Code>{attributes.rules}</Code>
+                                <strong>Input Rules:</strong> <Code className='break-all'>{attributes.rules}</Code>
                             </p>
                         )}
                     </div>
@@ -112,7 +114,7 @@ const EggSelector = ({
     loading,
     onEggChange,
 }: {
-    form: AppForm<Values>;
+    form: AppForm<Values, TagCheckMeta>;
     eggs: AdminEggListItem[];
     egg: EggForServer | null;
     loading: boolean;
@@ -137,15 +139,15 @@ const EggSelector = ({
 
     return (
         <>
-            <TitledGreyBox title={'Service Configuration'}>
-                <p className={'text-xs text-destructive mb-4'}>
+            <TitledGreyBox title='Service Configuration'>
+                <p className='text-xs text-destructive mb-4'>
                     Changing any of the values below will result in the server being reinstalled. The server will be
                     stopped and will then proceed.
                 </p>
                 <div>
-                    <Label htmlFor={'eggId'}>Egg</Label>
+                    <Label htmlFor='eggId'>Egg</Label>
                     <Select
-                        id={'eggId'}
+                        id='eggId'
                         value={eggId}
                         disabled={loading || eggs.length === 0}
                         options={eggs.map((candidate) => ({
@@ -154,28 +156,29 @@ const EggSelector = ({
                         }))}
                         onChange={(value) => {
                             const nextEggId = Number(value);
+
                             form.setFieldValue('eggId', nextEggId);
                             onEggChange(nextEggId);
                         }}
                     />
                 </div>
-                <div className={'mt-6'}>
-                    <form.AppField name={'skipScripts'}>
+                <div className='mt-6'>
+                    <form.AppField name='skipScripts'>
                         {(field) => (
                             <field.SwitchField
-                                label={'Skip Egg Install Script'}
-                                description={'Skip the egg install script when reinstalling the server.'}
+                                label='Skip Egg Install Script'
+                                description='Skip the egg install script when reinstalling the server.'
                             />
                         )}
                     </form.AppField>
                 </div>
             </TitledGreyBox>
-            <TitledGreyBox title={'Docker Image Configuration'} className={'mt-6'}>
+            <TitledGreyBox title='Docker Image Configuration' className='mt-6'>
                 {hasPresetImages ? (
                     <>
-                        <Label htmlFor={'image'}>Image</Label>
+                        <Label htmlFor='image'>Image</Label>
                         <Select
-                            id={'image'}
+                            id='image'
                             value={image}
                             options={imageOptions}
                             onChange={(value) => {
@@ -183,32 +186,32 @@ const EggSelector = ({
                                 form.setFieldValue('customImage', '');
                             }}
                         />
-                        <div className={'mt-6'}>
-                            <form.AppField name={'customImage'}>
+                        <div className='mt-6'>
+                            <form.AppField name='customImage'>
                                 {(field) => (
                                     <field.TextField
-                                        type={'text'}
-                                        id={'custom_docker_image'}
-                                        label={'Custom Docker Image'}
-                                        placeholder={'Or enter a custom image...'}
+                                        type='text'
+                                        id='custom_docker_image'
+                                        label='Custom Docker Image'
+                                        placeholder='Or enter a custom image...'
                                     />
                                 )}
                             </form.AppField>
                         </div>
                     </>
                 ) : (
-                    <form.AppField name={'image'}>
+                    <form.AppField name='image'>
                         {(field) => (
                             <field.TextField
-                                type={'text'}
-                                id={'image'}
-                                label={'Image'}
-                                placeholder={'Enter a docker image...'}
+                                type='text'
+                                id='image'
+                                label='Image'
+                                placeholder='Enter a docker image...'
                             />
                         )}
                     </form.AppField>
                 )}
-                <p className={'mt-1 text-xs text-muted-foreground'}>
+                <p className='mt-1 text-xs text-muted-foreground'>
                     Select an image from the dropdown or enter a custom Docker image.
                 </p>
             </TitledGreyBox>
@@ -221,10 +224,12 @@ function ServerStartupTabContent({ server }: Props) {
     const updateServerStartup = useUpdateAdminServerStartup();
 
     const { data: eggs } = useAdminEggs();
+    const [rejection, setRejection] = useState<string | null>(null);
 
     const form = useAppForm({
         defaultValues: serverToValues(server),
-        onSubmit: async ({ value }) => {
+        onSubmitMeta: { ignoreTags: false },
+        onSubmit: async ({ value, meta }) => {
             const payload: ServerStartupValues = {
                 startup: value.startup,
                 eggId: Number(value.eggId),
@@ -235,28 +240,37 @@ function ServerStartupTabContent({ server }: Props) {
 
             try {
                 await updateServerStartup.mutateAsync(
-                    updateAdminServerStartupInput(server.attributes.id, serverStartupBodyFromFormValues(payload))
+                    updateAdminServerStartupInput(server.attributes.id, {
+                        ...serverStartupBodyFromFormValues(payload),
+                        ignore_tags: meta.ignoreTags,
+                    })
                 );
-            } catch {
-                // Error toast is handled by the mutation.
+                setRejection(null);
+            } catch (error) {
+                setRejection(tagCheckError(error, 'egg_id'));
             }
         },
     });
     const eggId = useStore(form.store, (state) => Number(state.values.eggId));
+    const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
     const { data: egg = null, isFetching: loadingEgg } = useAdminEggForServer(eggId);
     const latestEggLoad = useRef(0);
 
     const loadEgg = async (nextEggId: number) => {
         const eggLoad = ++latestEggLoad.current;
 
+        setRejection(null);
+
         if (nextEggId <= 0) {
             form.setFieldValue('environment', {});
             form.setFieldValue('image', '');
             form.setFieldValue('customImage', '');
+
             return;
         }
 
         const nextEgg = await fetchEggForServer(nextEggId);
+
         if (eggLoad !== latestEggLoad.current) {
             return;
         }
@@ -265,39 +279,45 @@ function ServerStartupTabContent({ server }: Props) {
             form.setFieldValue('environment', {});
             form.setFieldValue('image', '');
             form.setFieldValue('customImage', '');
+
             return;
         }
 
         const isCurrentEgg = nextEggId === server.attributes.egg;
         const current = relationshipData(server.attributes.relationships?.variables);
         const environment: Record<string, string> = {};
-        relationshipData(nextEgg.attributes.relationships?.variables).forEach(({ attributes }) => {
+
+        for (const { attributes } of relationshipData(nextEgg.attributes.relationships?.variables)) {
             const existing = current.find((variable) => variable.attributes.env_variable === attributes.env_variable);
+
             environment[attributes.env_variable] =
                 isCurrentEgg && existing
                     ? (existing.attributes.server_value ?? existing.attributes.default_value ?? '')
                     : attributes.default_value;
-        });
+        }
+
         form.setFieldValue('environment', environment);
 
         const images = Object.values(nextEgg.attributes.docker_images);
+
         if (isCurrentEgg) {
             form.setFieldValue('image', server.attributes.container.image);
         } else if (images.length > 0) {
             form.setFieldValue('image', images[0]);
         }
+
         form.setFieldValue('customImage', '');
     };
 
     return (
         <Form form={form}>
-            <TitledGreyBox title={'Startup Command Modification'}>
-                <form.AppField name={'startup'}>
+            <TitledGreyBox title='Startup Command Modification'>
+                <form.AppField name='startup'>
                     {(field) => (
                         <field.TextField
-                            type={'text'}
-                            id={'startup'}
-                            label={'Startup Command'}
+                            type='text'
+                            id='startup'
+                            label='Startup Command'
                             description={
                                 'The following variables are available by default: {{SERVER_MEMORY}}, ' +
                                 '{{SERVER_IP}}, and {{SERVER_PORT}}.'
@@ -305,17 +325,17 @@ function ServerStartupTabContent({ server }: Props) {
                         />
                     )}
                 </form.AppField>
-                <div className={'mt-6'}>
-                    <Label htmlFor={'default_startup'}>Default Service Start Command</Label>
+                <div className='mt-6'>
+                    <Label htmlFor='default_startup'>Default Service Start Command</Label>
                     <TextInput
-                        id={'default_startup'}
-                        type={'text'}
+                        id='default_startup'
+                        type='text'
                         readOnly
                         value={egg?.attributes.startup || 'Startup not defined'}
                     />
                 </div>
             </TitledGreyBox>
-            <div className={'grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6'}>
+            <div className='grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6'>
                 <div>
                     <EggSelector
                         form={form}
@@ -327,7 +347,17 @@ function ServerStartupTabContent({ server }: Props) {
                 </div>
                 <EnvironmentVariables form={form} egg={egg} />
             </div>
-            <div className={'flex justify-end mt-6'}>
+            {rejection && (
+                <div className='mt-6'>
+                    <TagCheckAlert
+                        message={rejection}
+                        action='Change anyway'
+                        pending={isSubmitting}
+                        onAction={() => void form.handleSubmit({ ignoreTags: true })}
+                    />
+                </div>
+            )}
+            <div className='flex justify-end mt-6'>
                 <form.AppForm>
                     <form.SubmitButton>Save Modifications</form.SubmitButton>
                 </form.AppForm>
@@ -340,9 +370,7 @@ export default function ServerStartupTab() {
     const { server } = useServerDetail();
 
     if (server.attributes.container.installed !== 1) {
-        return (
-            <ServerError message={'Access to this resource is not allowed due to the current installation state.'} />
-        );
+        return <ServerError message='Access to this resource is not allowed due to the current installation state.' />;
     }
 
     return <ServerStartupTabContent key={server.attributes.id} server={server} />;

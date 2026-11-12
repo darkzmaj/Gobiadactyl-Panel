@@ -127,7 +127,7 @@ Migration state check: refuse when `migrations.pending` is -1, and compare the r
 1.x import tooling is a separate, explicit command (`docs/gobia-upgrade-from-1x.md`). A release with a destructive migration must say `rollback: requires-db-restore`; a file
 only rollback after such a release leaves the schema ahead of the code.
 
-**Restart list after a release.** Queue workers, the scheduler, PHP-FPM or the web server, the template SFTP service (`services/template-sftp`), then `php artisan p:theme:apply gobia`,
+**Restart list after a release.** Queue workers, the scheduler, PHP-FPM or the web server, the template SFTP service (`services/template-sftp`), then `php artisan p:theme:activate gobia-theme` (the theme is an extension since the 2026-11-12 upstream sync),
 `p:extension:enable gobia-core gobia-files gobia-templates` (publishes the extension assets) and the cache rebuild commands. `services/mock-wings` and `scripts/gobia/dev.mjs` are
 development tools only and are never part of a release.
 
@@ -152,7 +152,7 @@ only cover the frontend and the Gobia Pest tests. Wings reports file times in na
 7. Extract the artifact into a new release directory (never over the live tree) and copy `.env`, storage and extension data in.
 8. Run Composer/asset checks on the staged tree (no network at this point if the artifact is self contained) and a staged health check (`php artisan about`, config load).
 9. Run migrations from the staged tree; stop and go to rollback on the first failure.
-10. Rebuild caches, publish extension assets (`p:extension:enable gobia-core gobia-files gobia-templates`, `p:theme:apply gobia`).
+10. Rebuild caches, publish extension assets (`p:extension:enable gobia-core gobia-files gobia-templates gobia-theme`, `p:theme:activate gobia-theme`).
 11. Switch the live symlink atomically.
 12. Restart queue workers, the scheduler, PHP-FPM / web server and the template SFTP service; leave maintenance mode.
 13. Smoke test (sign in page, `/api/client`, compatibility endpoint, one Wings call per node). Failure goes to rollback.

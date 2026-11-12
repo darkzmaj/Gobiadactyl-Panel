@@ -52,7 +52,7 @@ export function tabGroupFor(pathname: string): AdminTabGroup | undefined {
 /** Tabs that are real pages: every tab is a link, so Back, Forward and refresh keep the tab. */
 export function TabLinks({ label, tabs, path }: { label: string; tabs: readonly Tab[]; path: string }) {
     return (
-        <nav aria-label={label} className={'flex flex-wrap border-b border-border mb-6'}>
+        <nav aria-label={label} className='flex flex-wrap border-b border-border mb-6'>
             {tabs.map((tab) => {
                 const active = tab.to === path;
 
@@ -80,7 +80,10 @@ export function TabLinks({ label, tabs, path }: { label: string; tabs: readonly 
 export default function AdminTabs() {
     const path = useLocation({ select: (location) => location.pathname.replace(/\/+$/, '') });
     const group = tabGroupFor(path);
-    if (!group) return null;
+
+    if (!group) {
+        return null;
+    }
 
     return <TabLinks label={group.heading} tabs={group.tabs} path={path} />;
 }

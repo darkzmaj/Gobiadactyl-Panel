@@ -1,7 +1,6 @@
-import { getBootstrapExtensions } from '@/bootstrap';
+import { getBootstrapExtensions, getBootstrapThemeChain } from '@/bootstrap';
 import type { ExtensionDefinition, ExtensionSetupContext } from '@/sdk';
 import { isObject } from '@/lib/objects';
-import { registerClassPrefixes } from '@/lib/cn';
 import {
     abortExtensionRegistryBatch,
     commitExtensionRegistryBatch,
@@ -9,18 +8,18 @@ import {
     registerScreen,
     registerSlotComponent,
     registerExtensionTableColumn,
-    registerComponentReplacement,
+    registerFormExtension,
+    registerViewOverride,
     failExtensionLoad,
     clearExtensionError,
     setExtensionState,
     prepareExtensions,
     getLoadableExtensions,
     type ExtensionRegistryBatch,
+    type SiteExtensionEntry,
 } from '@/extensions/registry';
-
-export type { SiteExtensionEntry } from '@/extensions/registry';
 import type { ExtensionTableColumnRegistration } from './tableTypes';
-import type { SiteExtensionEntry } from '@/extensions/registry';
+import type { FormExtension } from './formTypes';
 import { startExtensionDevelopmentReload } from './development';
 
 export const EXTENSION_IMPORT_TIMEOUT_MS = 15_000;
@@ -28,7 +27,8 @@ export const EXTENSION_IMPORT_TIMEOUT_MS = 15_000;
 const isThenable = <T>(value: T): value is T & PromiseLike<void> =>
     isObject(value) && 'then' in value && value.then instanceof Function;
 
-const withTimeout = async <T>(promise: Promise<T>): Promise<T> => {
+/** Rejects when the import takes longer than an extension bundle may; the theme chain is held to the same limit. */
+export const withImportTimeout = async <T>(promise: Promise<T>): Promise<T> => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timer = new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
@@ -45,18 +45,30 @@ const withTimeout = async <T>(promise: Promise<T>): Promise<T> => {
     }
 };
 
+/**
+ * Guests are sent no screens or view overrides, since neither renders on the sign-in pages, so
+ * the same setup() skips those registrations there instead of failing on undeclared names.
+ */
 const createContext = (entry: SiteExtensionEntry, batch: ExtensionRegistryBatch): ExtensionSetupContext => ({
     meta: { id: entry.id, version: entry.version },
     config: entry.config ?? {},
-    components: {
-        replace: (name, replacement) => registerComponentReplacement(entry.id, name, replacement, batch),
+    views: {
+        override: (name, view) => {
+            if (entry.views) {
+                registerViewOverride(entry.id, name, view, batch);
+            }
+        },
     },
     slots: {
         register: (name, component) =>
             registerSlotComponent(entry.id, name, component as Parameters<typeof registerSlotComponent>[2], batch),
     },
     screens: {
-        register: (id, component, options) => registerScreen(entry.id, id, component, batch, options),
+        register: (id, component, options) => {
+            if (entry.screens) {
+                registerScreen(entry.id, id, component, batch, options);
+            }
+        },
     },
     columns: {
         register: (name, column) =>
@@ -70,6 +82,10 @@ const createContext = (entry: SiteExtensionEntry, batch: ExtensionRegistryBatch)
                 batch
             ),
     },
+    forms: {
+        extend: (form, component) =>
+            registerFormExtension({ extensionId: entry.id, form, component: component as FormExtension }, batch),
+    },
 });
 
 export type ExtensionModule = object;
@@ -81,6 +97,7 @@ const describeBootError = (cause: unknown): Error => {
     const error = cause instanceof Error ? cause : new Error(String(cause));
     const message = error.message;
     const match = message.match(/does not provide an export named '([^']+)'/);
+
     if (!match) {
         return error;
     }
@@ -91,56 +108,73 @@ const describeBootError = (cause: unknown): Error => {
     );
 };
 
-const parseExtensionDefinition = <T extends object>(module: T): ExtensionDefinition => {
-    if (!('default' in module) || !isObject(module.default) || !('setup' in module.default)) {
+/** The bundle's definition; null for a theme without `setup`, which has nothing to register. */
+const parseExtensionDefinition = <T extends object>(module: T, theme: boolean): ExtensionDefinition | null => {
+    const definition = 'default' in module && isObject(module.default) ? module.default : undefined;
+
+    if (theme && definition && !('setup' in definition)) {
+        return null;
+    }
+
+    if (!definition || !('setup' in definition) || !(definition.setup instanceof Function)) {
         throw new Error('bundle has no default export with a setup() function');
     }
 
-    if (!(module.default.setup instanceof Function)) {
-        throw new Error('bundle has no default export with a setup() function');
-    }
-
-    return module.default as ExtensionDefinition;
+    return definition as ExtensionDefinition;
 };
 
 let loading: Promise<void> | undefined;
 let importBundle: ModuleImporter = nativeImport;
 const failedImports = new Set<string>();
-const retries = new Map<string, Promise<void>>();
 
 async function bootExtension(entry: SiteExtensionEntry): Promise<void> {
     let module: ExtensionModule;
+
     try {
-        module = await withTimeout(importBundle(entry.entry));
+        module = await withImportTimeout(importBundle(entry.entry));
     } catch (cause) {
         failedImports.add(entry.id);
         failExtensionLoad(entry.id, 'boot', describeBootError(cause));
+
         return;
     }
 
     const batch = createExtensionRegistryBatch();
+
     try {
-        const definition = parseExtensionDefinition(module);
-        const setupResult = definition.setup(createContext(entry, batch));
+        const definition = parseExtensionDefinition(module, entry.theme === true);
+        const setupResult = definition?.setup(createContext(entry, batch));
+
         if (isThenable(setupResult)) {
             void Promise.resolve(setupResult).catch(() => {});
             throw new Error('setup() must register synchronously and must not return a promise');
         }
+
         commitExtensionRegistryBatch(entry.id, batch);
     } catch (cause) {
-        if (!batch.closed) abortExtensionRegistryBatch(batch);
+        if (!batch.closed) {
+            abortExtensionRegistryBatch(batch);
+        }
+
         failExtensionLoad(entry.id, 'boot', describeBootError(cause));
     }
 }
 
-/** Call once after the core mounts. */
+/** Call once after the core mounts. The route tree has already registered each extension's class prefix. */
 export function loadExtensions(importModule: ModuleImporter = nativeImport): Promise<void> {
-    if (loading) return loading;
+    if (loading) {
+        return loading;
+    }
+
     importBundle = importModule;
-    if (!getLoadableExtensions()) prepareExtensions(getBootstrapExtensions());
-    registerClassPrefixes((getLoadableExtensions() ?? []).map((entry) => entry.prefix));
-    startExtensionDevelopmentReload(getLoadableExtensions() ?? []);
-    loading = Promise.all((getLoadableExtensions() ?? []).map(bootExtension)).then(() => {});
+    const entries = prepareExtensions(getBootstrapExtensions());
+
+    // A theme with JavaScript is an entry too; one poller per package.
+    const ids = new Set(entries.map(({ id }) => id));
+
+    startExtensionDevelopmentReload([...entries, ...getBootstrapThemeChain().filter(({ id }) => !ids.has(id))]);
+    loading = Promise.all(entries.map(bootExtension)).then(() => {});
+
     return loading;
 }
 
@@ -148,17 +182,16 @@ export function canRetryExtension(id: string): boolean {
     return failedImports.has(id);
 }
 
+/** Only a failed import can be retried, once per failure. */
 export function retryExtension(id: string): Promise<void> {
-    const pending = retries.get(id);
-    if (pending) return pending;
-
     const entry = getLoadableExtensions()?.find((candidate) => candidate.id === id);
-    if (!entry || !failedImports.delete(id)) return Promise.resolve();
+
+    if (!entry || !failedImports.delete(id)) {
+        return Promise.resolve();
+    }
 
     clearExtensionError(id, 'boot');
     setExtensionState({ id, status: 'loading' });
-    const retry = bootExtension(entry).finally(() => retries.delete(id));
-    retries.set(id, retry);
 
-    return retry;
+    return bootExtension(entry);
 }

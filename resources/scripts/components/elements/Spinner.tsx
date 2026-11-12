@@ -1,62 +1,31 @@
 import React, { Suspense } from 'react';
-import { cva } from 'class-variance-authority';
 import { useLocation, useRouter } from '@tanstack/react-router';
-import { cn } from '@/lib/cn';
 import ErrorBoundary from '@/components/elements/ErrorBoundary';
-import PageSkeleton from '@/gobia/PageSkeleton';
+import { replaceable, useSkin } from '@/themes/skins';
 
 export type SpinnerSize = 'small' | 'base' | 'large';
 
-interface Props {
+export interface SpinnerProps {
     size?: SpinnerSize;
     centered?: boolean;
     isBlue?: boolean;
     children?: React.ReactNode;
 }
 
-type SpinnerComponentType = ((props: Props) => React.JSX.Element) & {
+type SpinnerComponentType = ((props: SpinnerProps) => React.JSX.Element) & {
     displayName?: string;
     Size: Record<'SMALL' | 'BASE' | 'LARGE', SpinnerSize>;
-    Suspense: ((props: Props) => React.JSX.Element) & { displayName?: string };
+    Suspense: ((props: SpinnerProps) => React.JSX.Element) & { displayName?: string };
 };
 
-const spinnerSize = cva('', {
-    variants: {
-        size: {
-            small: 'w-4 h-4 border-2',
-            base: 'w-8 h-8 border-[3px]',
-            large: 'w-16 h-16 border-[6px]',
-        },
-    },
-    defaultVariants: {
-        size: 'base',
-    },
-});
+function CoreSpinner({ size = 'base', centered = false, isBlue = false }: SpinnerProps) {
+    const ui = useSkin('Spinner', { size, blue: isBlue, centered });
+    const spinner = <span {...ui('root')} />;
 
-const SpinnerComponent = ({ size, isBlue }: Props) => (
-    <span
-        className={cn(
-            'block rounded-full animate-[spin_1s_cubic-bezier(0.55,0.25,0.25,0.7)_infinite] border-muted border-t-foreground',
-            isBlue && 'border-ring border-t-primary',
-            spinnerSize({ size: size ?? 'base' })
-        )}
-    />
-);
+    return centered ? <div {...ui('container')}>{spinner}</div> : spinner;
+}
 
-const Spinner = (({ centered, ...props }: Props) =>
-    centered ? (
-        // A centred large spinner stands for a whole page loading: show the page skeleton instead.
-        props.size === 'large' ? (
-            <PageSkeleton />
-        ) : (
-            <div className={'m-6 flex items-center justify-center'}>
-                <SpinnerComponent {...props} />
-            </div>
-        )
-    ) : (
-        <SpinnerComponent {...props} />
-    )) as SpinnerComponentType;
-Spinner.displayName = 'Spinner';
+const Spinner = replaceable('Spinner', CoreSpinner) as SpinnerComponentType;
 
 Spinner.Size = {
     SMALL: 'small',

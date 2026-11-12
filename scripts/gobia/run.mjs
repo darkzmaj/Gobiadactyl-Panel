@@ -51,9 +51,15 @@ const tasks = {
                 run(bin('tsc'), ['-p', join('extensions', name, 'tsconfig.json')])
         ),
     lint: () => {
-        const sources = extensions.map((name) => join('extensions', name, 'src', 'client'));
+        // Extensions keep their frontend in src/client; a theme (gobia-theme) has only a frontend, in src.
+        const sources = extensions
+            .filter((name) => existsSync(join(root, 'extensions', name, 'vite.config.mjs')))
+            .map((name) => join('extensions', name, 'src', 'client'))
+            .map((path) => (existsSync(join(root, path)) ? path : dirname(path)));
         run(bin('oxfmt'), ['--check', ...sources]);
-        run(bin('oxlint'), sources);
+        // Upstream's .oxlintrc.json grew stricter style rules in the 2.0-develop sync; the Gobia extensions keep the rule
+        // set they were written against until they are brought up to it (docs/gobia-core-patches.md).
+        run(bin('oxlint'), ['-c', '.oxlintrc.gobia.json', ...sources]);
     },
 };
 tasks.all = () => ['tsc', 'lint', 'test', 'build'].forEach((task) => tasks[task]());

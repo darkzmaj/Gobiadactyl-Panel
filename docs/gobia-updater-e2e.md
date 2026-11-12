@@ -9,7 +9,7 @@ cache and sessions on files. No PHP-FPM, no systemd, no Wings node: those parts 
 1. Three signed packages were built from the working tree with `scripts/release/build-release.sh` (`RELEASE_SOURCE=worktree`) and a
    throwaway Ed25519 key: 2.0.0, 2.0.1 (adds a migration and a marker file) and 2.0.2 (adds a migration that creates a table and then
    throws). Each package is about 21 MB and unpacks to about 14 900 files.
-2. 2.0.0 was installed from its package alone (unpack, `.env`, `key:generate`, `migrate --seed`, `p:theme:apply gobia`,
+2. 2.0.0 was installed from its package alone (unpack, `.env`, `key:generate`, `migrate --seed`, `p:theme:apply gobia` (2.0.0 predates the theme platform; current releases run `p:theme:activate gobia-theme`),
    `p:extension:enable` for the three Gobia extensions). A third party extension (`extensions/acme-notes`, enabled), a custom theme
    (`themes/custom`) and a file under `storage/app/private` were added to stand in for what a real installation accumulates.
 3. `GOBIA_UPDATE_PROVIDER=directory` pointed at a folder that received 2.0.1, then 2.0.2.

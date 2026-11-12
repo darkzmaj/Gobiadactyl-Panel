@@ -23,6 +23,7 @@ class SettingsServiceProvider extends ServiceProvider
      */
     protected array $keys = [
         'app:name',
+        'app:logo',
         'app:locale',
         'recaptcha:enabled',
         'recaptcha:secret_key',
@@ -35,6 +36,7 @@ class SettingsServiceProvider extends ServiceProvider
         'pterodactyl:client_features:allocations:enabled',
         'pterodactyl:client_features:allocations:range_start',
         'pterodactyl:client_features:allocations:range_end',
+        'pterodactyl:client_features:avatars:enabled',
     ];
 
     /**
@@ -91,7 +93,8 @@ class SettingsServiceProvider extends ServiceProvider
         }
 
         foreach ($this->keys as $key) {
-            $value = Arr::get($values, 'settings::'.$key, $config->get(str_replace(':', '.', $key)));
+            $default = $config->get(str_replace(':', '.', $key));
+            $value = Arr::get($values, 'settings::'.$key, $default);
             if (in_array($key, self::$encrypted, true) && is_string($value)) {
                 try {
                     $value = $encrypter->decrypt($value);
@@ -117,7 +120,26 @@ class SettingsServiceProvider extends ServiceProvider
                     $value = null;
             }
 
-            $config->set(str_replace(':', '.', $key), $value);
+            $config->set(str_replace(':', '.', $key), $this->cast($value, $default));
         }
+    }
+
+    /**
+     * Settings are stored as strings, so a stored value takes the type of the
+     * configuration value it replaces. Keys without a typed default keep the
+     * stored value.
+     */
+    protected function cast(mixed $value, mixed $default): mixed
+    {
+        if (! is_string($value)) {
+            return $value;
+        }
+
+        return match (true) {
+            is_int($default) => (int) $value,
+            is_float($default) => (float) $value,
+            is_bool($default) => filter_var($value, FILTER_VALIDATE_BOOL),
+            default => $value,
+        };
     }
 }

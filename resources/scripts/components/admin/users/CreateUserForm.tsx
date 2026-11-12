@@ -5,6 +5,8 @@ import { useAdminLanguages } from '@/api/admin/languages/queries';
 import { useCreateAdminUser } from '@/api/admin/users/queries';
 import AdminContentBlock from '@/components/admin/AdminContentBlock';
 import UserFormFields from '@/components/admin/users/UserFormFields';
+import ExtensionFormFields from '@/components/admin/extensions/ExtensionFormFields';
+import { initialExtensionValues, useExtensionPayload } from '@/extensions/forms';
 import Icon from '@/components/elements/Icon';
 import { useAppForm, Form } from '@/components/form';
 import { languageOptions } from '@/components/admin/languageOptions';
@@ -17,6 +19,7 @@ const initialValues = (language: string): UserValues => ({
     password: '',
     rootAdmin: false,
     language,
+    extensions: initialExtensionValues(),
 });
 
 export default function CreateUserForm() {
@@ -27,12 +30,14 @@ export default function CreateUserForm() {
     const defaults = initialValues(defaultLanguage);
     const languagesList = languageOptions(languages, defaults.language);
 
+    const { withExtensionPayload } = useExtensionPayload('admin.user');
     const form = useAppForm({
         defaultValues: defaults,
         onSubmit: async ({ value }) => {
             try {
-                const user = await createUser.mutateAsync(createAdminUserInput(value));
-                navigate({ to: '/panel/users/$id', params: { id: user.attributes.id } });
+                const user = await createUser.mutateAsync(createAdminUserInput(withExtensionPayload(value)));
+
+                void navigate({ to: '/panel/users/$id', params: { id: user.attributes.id } });
             } catch {
                 // Error toast is handled by the mutation.
             }
@@ -41,25 +46,28 @@ export default function CreateUserForm() {
 
     return (
         <AdminContentBlock
-            title={'Admin · Create User'}
-            heading={'Create User'}
-            description={'Create a panel account and configure its access.'}
+            title='Admin · Create User'
+            heading='Create User'
+            description='Create a panel account and configure its access.'
         >
             <Link
-                to={'/panel/users'}
-                className={'inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4'}
+                to='/panel/users'
+                className='inline-flex items-center text-sm text-muted-foreground hover:text-foreground mb-4'
             >
-                <Icon icon={ArrowLeft} className={'mr-2'} />
+                <Icon icon={ArrowLeft} className='mr-2' />
                 Back to Users
             </Link>
             <Form form={form}>
-                <div className={'space-y-6'}>
+                <div className='space-y-6'>
                     <UserFormFields
                         form={form}
                         languageOptions={languagesList}
                         languagesLoading={languagesLoading && !languages}
                     />
-                    <div className={'flex justify-end'}>
+                    <form.AppField name='extensions'>
+                        {() => <ExtensionFormFields form='admin.user' mode='create' error={createUser.error} boxed />}
+                    </form.AppField>
+                    <div className='flex justify-end'>
                         <form.AppForm>
                             <form.SubmitButton>Create User</form.SubmitButton>
                         </form.AppForm>

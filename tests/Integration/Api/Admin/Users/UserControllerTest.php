@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Pterodactyl\Tests\Pest\Integration\Api\Admin\Users\UserControllerTest;
 
 use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\Assert;
+use Pterodactyl\Contracts\Users\DisablesTwoFactor;
+use Pterodactyl\Models\ActivityLog;
 use Pterodactyl\Models\Subuser;
 use Pterodactyl\Models\User;
 use Pterodactyl\Tests\Integration\Api\Admin\AdminApiIntegrationTestCase;
@@ -16,7 +20,7 @@ const ADMIN_USER_ATTRIBUTES = ['id', 'external_id', 'uuid', 'username', 'email',
 dataset('userSearchDataProvider', fn (): array => [['username'], ['email'], ['uuid']]);
 dataset('userListSortsDataProvider', fn (): array => [['email'], ['-email'], ['username'], ['-username'], ['created_at'], ['-created_at']]);
 /** Endpoints that should return a 403 error when accessed by a non-root-admin user. */
-dataset('userEndpointsDataProvider', fn (): array => [['getJson', 'api.admin.users'], ['getJson', 'api.admin.users.view'], ['getJson', 'api.admin.users.external'], ['postJson', 'api.admin.users.store'], ['postJson', 'api.admin.users.disable-2fa'], ['putJson', 'api.admin.users.update'], ['delete', 'api.admin.users.delete']]);
+dataset('userEndpointsDataProvider', fn (): array => [['getJson', 'api.admin.users'], ['getJson', 'api.admin.users.view'], ['getJson', 'api.admin.users.external'], ['postJson', 'api.admin.users.store'], ['postJson', 'api.admin.users.disable-2fa'], ['putJson', 'api.admin.users.update'], ['delete', 'api.admin.users.delete'], ['postJson', 'api.admin.users.avatar.update'], ['delete', 'api.admin.users.avatar.delete']]);
 test('returns paginated users with relationship counts', function (): void {
     $admin = $this->getAdminUser();
     $admin->forceFill(['username' => 'admin-list-contract-admin', 'email' => 'admin-list-contract-admin@example.test'])->save();
@@ -86,6 +90,10 @@ test('create user', function (): void {
     $this->assertDatabaseHas('users', ['username' => 'testuser', 'email' => 'test@example.com']);
     $user = User::query()->where('username', 'testuser')->first();
     $response->assertJson(['object' => 'user', 'attributes' => ['id' => $user->id, 'external_id' => $user->external_id, 'uuid' => $user->uuid, 'username' => $user->username, 'email' => $user->email, 'language' => $user->language, 'first_name' => $user->name_first, 'last_name' => $user->name_last, 'root_admin' => (bool) $user->root_admin, '2fa' => (bool) $user->use_totp], 'meta' => ['resource' => route('api.admin.users.view', ['user' => $user->id])]], true);
+
+    // The new account's own feed shows its creation once; the admin log keeps the admin entry.
+    expect($user->activity()->pluck('event')->all())->toBe(['user:user.create'])
+        ->and(ActivityLog::query()->where('event', 'admin:user.create')->where('properties->email', 'test@example.com')->exists())->toBeTrue();
 });
 test('update user', function (): void {
     $user = User::factory()->create();
@@ -112,6 +120,30 @@ test('disable two factor', function (): void {
     $response = $this->postJson(route('api.admin.users.disable-2fa', ['user' => $user->id]));
     $response->assertStatus(Response::HTTP_NO_CONTENT);
     $this->assertDatabaseHas('users', ['id' => $user->id, 'use_totp' => false, 'totp_secret' => null]);
+    // The user's own feed shows the change once.
+    expect($user->activity()->pluck('event')->all())->toBe(['user:two-factor.delete']);
+
+    // Disabling it again changes nothing, so nothing more reaches the user's feed.
+    $this->postJson(route('api.admin.users.disable-2fa', ['user' => $user->id]))->assertNoContent();
+    expect($user->activity()->count())->toBe(1);
+});
+test('disable two factor goes through the contract', function (): void {
+    $user = User::factory()->create(['use_totp' => true, 'totp_secret' => 'encrypted-secret']);
+    $spy = new class implements DisablesTwoFactor
+    {
+        public ?int $disabled = null;
+
+        public function disable(User $user): void
+        {
+            $this->disabled = $user->id;
+        }
+    };
+    $this->app->instance(DisablesTwoFactor::class, $spy);
+
+    $this->postJson(route('api.admin.users.disable-2fa', ['user' => $user->id]))->assertStatus(Response::HTTP_NO_CONTENT);
+
+    expect($spy->disabled)->toBe($user->id);
+    $this->assertDatabaseHas('users', ['id' => $user->id, 'use_totp' => true]);
 });
 test('delete user', function (): void {
     $user = User::factory()->create();
@@ -146,6 +178,11 @@ test('a blank password leaves the password unchanged', function (): void {
     $this->putJson(route('api.admin.users.update', ['user' => $user->id]), ['username' => $user->username, 'email' => $user->email, 'name_first' => $user->name_first, 'name_last' => $user->name_last, 'password' => ''])->assertOk();
     expect($user->fresh()->password)->toBe($hash);
 });
+test('the language is read from preferences', function (): void {
+    $user = User::factory()->create(['language' => 'xx']);
+    $this->putJson(route('api.admin.users.update', ['user' => $user->id]), ['username' => $user->username, 'email' => $user->email, 'name_first' => $user->name_first, 'name_last' => $user->name_last, 'preferences' => ['language' => 'en']])->assertOk();
+    expect($user->fresh()->language)->toBe('en');
+});
 test('invalid payloads return validation errors', function (): void {
     $response = $this->postJson(route('api.admin.users.store'), []);
     $response->assertStatus(Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -158,4 +195,14 @@ test('invalid payloads return validation errors', function (): void {
         expect($error['meta']['rule'])->toBe('required');
         expect($error['detail'])->not->toBeEmpty();
     }
+});
+test('avatar changes are logged against the user', function (): void {
+    Storage::fake(config()->string('extensions.files_disk'));
+    $user = User::factory()->create();
+
+    $this->post(route('api.admin.users.avatar.update', ['user' => $user->id]), ['avatar' => UploadedFile::fake()->image('avatar.png')], ['Accept' => 'application/json'])->assertOk();
+    $this->delete(route('api.admin.users.avatar.delete', ['user' => $user->id]))->assertNoContent();
+
+    expect($user->fresh()->avatar)->toBeNull()
+        ->and(ActivityLog::query()->whereIn('event', ['admin:user.avatar-changed', 'admin:user.avatar-deleted'])->where('properties->email', $user->email)->count())->toBe(2);
 });

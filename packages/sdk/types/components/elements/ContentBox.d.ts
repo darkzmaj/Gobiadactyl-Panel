@@ -2,10 +2,9 @@
 import React from 'react';
 type Props = Readonly<React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement> & {
     title?: string;
-    description?: string;
     borderColor?: string;
     showLoadingOverlay?: boolean;
 }>;
-/** The standard Gobia card: title, optional description, then the content. */
-declare const ContentBox: ({ title, description, borderColor: _borderColor, showLoadingOverlay, children, ...props }: Props) => React.JSX.Element;
+/** A section title above a plain `Card`. */
+declare const ContentBox: ({ title, borderColor, showLoadingOverlay, children, ...props }: Props) => React.JSX.Element;
 export default ContentBox;

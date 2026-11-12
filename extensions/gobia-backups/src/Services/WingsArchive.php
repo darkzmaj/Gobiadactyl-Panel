@@ -12,7 +12,7 @@ use Psr\Http\Message\StreamInterface;
 use Pterodactyl\Enum\JwtScope;
 use Pterodactyl\Models\Backup;
 use Pterodactyl\Models\Server;
-use Pterodactyl\Services\Nodes\NodeJWTService;
+use Pterodactyl\Services\Nodes\NodeJwt;
 use RuntimeException;
 
 /**
@@ -21,15 +21,17 @@ use RuntimeException;
  */
 class WingsArchive
 {
-    public function __construct(private readonly NodeJWTService $jwt) {}
+    public function __construct(private readonly NodeJwt $jwt) {}
 
     public function open(Server $server, Backup $backup): StreamInterface
     {
-        $token = $this->jwt
-            ->setExpiresAt(CarbonImmutable::now()->addMinutes(15))
-            ->setClaims(['backup_uuid' => $backup->uuid, 'server_uuid' => $server->uuid])
-            ->setScopes(JwtScope::BackupDownload)
-            ->handle($server->node, 'gobia-backups'.$server->uuid.Str::random(16));
+        $token = $this->jwt->issue(
+            $server->node,
+            JwtScope::BackupDownload,
+            identifiedBy: 'gobia-backups'.$server->uuid.Str::random(16),
+            expiresAt: CarbonImmutable::now()->addMinutes(15),
+            claims: ['backup_uuid' => $backup->uuid, 'server_uuid' => $server->uuid],
+        );
 
         $response = Http::withOptions(['stream' => true, 'verify' => App::isProduction()])
             ->connectTimeout((int) config('pterodactyl.guzzle.connect_timeout', 5))

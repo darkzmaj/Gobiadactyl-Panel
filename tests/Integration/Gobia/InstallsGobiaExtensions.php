@@ -46,10 +46,14 @@ trait InstallsGobiaExtensions
 
         Route::getRoutes()->refreshNameLookups();
         $this->app->make(ExtensionProviderLoader::class)->registerProviders($this->app->make(ExtensionRepository::class)->enabled());
+        $this->reopenTestTransaction();
     }
 
     protected function uninstallGobia(): void
     {
+        // The DROP TABLE statements below commit whatever the test wrote, so its transaction is rolled back first.
+        $this->rollBackTestTransaction();
+
         foreach ($this->gobiaInstalled as $id) {
             Extension::query()->where('identifier', $id)->delete();
             ExtensionSetting::query()->where('extension', $id)->delete();
@@ -63,5 +67,28 @@ trait InstallsGobiaExtensions
         }
         DB::table('migrations')->where('migration', 'like', '%gobia%')->delete();
         File::deleteDirectory($this->gobiaDirectory);
+        $this->reopenTestTransaction();
+    }
+
+    /** Discards what the test wrote so far; call it before DDL that would otherwise commit those rows. */
+    protected function rollBackTestTransaction(): void
+    {
+        $pdo = DB::connection()->getPdo();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+    }
+
+    /**
+     * MySQL commits the open transaction on DDL (the extension migrations, DROP TABLE). DatabaseTransactions keeps
+     * counting its transaction regardless, so a real one is opened again: without it a savepoint the code under test
+     * rolls back to does not exist, and every write afterwards would outlive the test.
+     */
+    protected function reopenTestTransaction(): void
+    {
+        $pdo = DB::connection()->getPdo();
+        if (DB::transactionLevel() > 0 && ! $pdo->inTransaction()) {
+            $pdo->beginTransaction();
+        }
     }
 }

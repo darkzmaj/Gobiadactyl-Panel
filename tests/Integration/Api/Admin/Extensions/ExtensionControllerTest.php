@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Pterodactyl\Models\Extension;
 use Pterodactyl\Models\ExtensionSetting;
+use Pterodactyl\Models\Subuser;
 use Pterodactyl\Services\Extensions\ExtensionRepository;
 use Pterodactyl\Services\Extensions\ExtensionSettingDefinition;
 use Pterodactyl\Services\Extensions\ExtensionSettingFiles;
@@ -34,7 +35,7 @@ afterEach(function (): void {
     repository()->flushDiscovery();
     File::deleteDirectory($this->baseDirectory);
 });
-dataset('extensionEndpointsDataProvider', fn (): array => [['getJson', 'api.admin.extensions'], ['postJson', 'api.admin.extensions.install'], ['getJson', 'api.admin.extensions.settings', ['extension' => 'admin-fixture']], ['patchJson', 'api.admin.extensions.settings.update', ['extension' => 'admin-fixture']], ['postJson', 'api.admin.extensions.settings.file', ['extension' => 'admin-fixture', 'input' => 'logo']], ['deleteJson', 'api.admin.extensions.settings.file.clear', ['extension' => 'admin-fixture', 'input' => 'logo']], ['postJson', 'api.admin.extensions.enable', ['extension' => 'admin-fixture']], ['postJson', 'api.admin.extensions.disable', ['extension' => 'admin-fixture']], ['delete', 'api.admin.extensions.delete', ['extension' => 'admin-fixture']]]);
+dataset('extensionEndpointsDataProvider', fn (): array => [['getJson', 'api.admin.extensions'], ['postJson', 'api.admin.extensions.install'], ['getJson', 'api.admin.extensions.settings', ['extension' => 'admin-fixture']], ['get', 'api.admin.extensions.icon', ['extension' => 'admin-fixture']], ['patchJson', 'api.admin.extensions.settings.update', ['extension' => 'admin-fixture']], ['postJson', 'api.admin.extensions.settings.file', ['extension' => 'admin-fixture', 'input' => 'logo']], ['deleteJson', 'api.admin.extensions.settings.file.clear', ['extension' => 'admin-fixture', 'input' => 'logo']], ['postJson', 'api.admin.extensions.enable', ['extension' => 'admin-fixture']], ['postJson', 'api.admin.extensions.disable', ['extension' => 'admin-fixture']], ['delete', 'api.admin.extensions.delete', ['extension' => 'admin-fixture']]]);
 test('list extensions returns discovered extensions and metadata', function (): void {
     writeExtension('admin-fixture');
     Extension::query()->create(['identifier' => 'admin-fixture', 'version' => '1.0.0', 'enabled' => true]);
@@ -91,7 +92,7 @@ test('settings update still validates submitted required settings', function ():
     $response = $this->patchJson(route('api.admin.extensions.settings.update', ['extension' => 'admin-fixture']), ['settings' => ['public_note' => '', 'limit' => 'many']])
         ->assertUnprocessable();
 
-    expect(collect($response->json('errors'))->pluck('meta.source_field')->sort()->values()->all())->toBe(['limit', 'public_note'])
+    expect(collect($response->json('errors'))->pluck('meta.source_field')->unique()->sort()->values()->all())->toBe(['limit', 'public_note'])
         ->and($settings->get('public_note'))->toBe('note')
         ->and($settings->get('limit'))->toBe(10);
 });
@@ -115,6 +116,48 @@ test('blank secret updates preserve credentials and save other settings', functi
     expect($settings->get('api_key'))->toBe('stored-secret');
     expect($settings->get('limit'))->toBe(7);
 })->with(['', null, '   ']);
+
+test('secrets of any field type survive a save of the form they were read from', function (): void {
+    writeExtension('admin-fixture');
+    $settings = new ExtensionSettingsDefinition(repository()->settings('admin-fixture'), [
+        ExtensionSettingDefinition::make('region_token', 'region_token', '', ['string'])->secret()->field('text'),
+        ExtensionSettingDefinition::make('api_key', 'api_key', '')->field('password'),
+        ExtensionSettingDefinition::make('greeting', 'greeting', 'hello'),
+    ]);
+    $this->app->make(ExtensionSettingsRegistry::class)->register('admin-fixture', $settings);
+    $route = route('api.admin.extensions.settings.update', ['extension' => 'admin-fixture']);
+    $this->patchJson($route, ['settings' => ['region_token' => 'stored-token', 'api_key' => 'stored-key']])->assertOk();
+
+    // The form sends every value it was given back, masks included.
+    $schema = $this->getJson(route('api.admin.extensions.settings', ['extension' => 'admin-fixture']))->assertOk()->json('data.schema');
+    $this->patchJson($route, ['settings' => [...array_column($schema, 'value', 'input'), 'greeting' => 'changed']])
+        ->assertOk()
+        ->assertJsonPath('data.schema.0.value', ExtensionSettingDefinition::MASK)
+        ->assertJsonPath('data.schema.1.value', ExtensionSettingDefinition::MASK);
+
+    expect($settings->get('region_token'))->toBe('stored-token')
+        ->and($settings->get('api_key'))->toBe('stored-key')
+        ->and($settings->get('greeting'))->toBe('changed');
+    // A password field is encrypted at rest even without ->secret().
+    expect(ExtensionSetting::query()->where('extension', 'admin-fixture')->where('key', 'api_key')->value('value'))->not->toContain('stored-key');
+    expect(ExtensionSetting::query()->where('extension', 'admin-fixture')->where('key', 'api_key')->value('is_secret'))->toBeTrue();
+});
+
+test('simple settings are validated against their field type', function (array $input): void {
+    $settings = registerSettings();
+
+    $response = $this->patchJson(route('api.admin.extensions.settings.update', ['extension' => 'admin-fixture']), ['settings' => $input])
+        ->assertUnprocessable();
+
+    expect($response->json('errors.0.meta.source_field'))->toBe(array_key_first($input))
+        ->and($settings->get('limit'))->toBe(10)
+        ->and($settings->get('greeting'))->toBe('default greeting');
+})->with([
+    'number as a string' => [['limit' => '7']],
+    'text as an object' => [['greeting' => ['nested' => 'value']]],
+    'text as a boolean' => [['greeting' => true]],
+    'secret as a list' => [['api_key' => ['private-token']]],
+]);
 
 test('malformed settings return 422 with a field error', function (mixed $settings): void {
     registerSettings();
@@ -163,6 +206,36 @@ test('install accepts multipart boolean strings for enable', function (string $e
         ->assertUnprocessable()
         ->assertJsonPath('errors.0.code', 'InvalidExtensionException');
 })->with(['true', 'false', '1', '0']);
+test('install asks before replacing an installed extension and replaces it once confirmed', function (bool $registered): void {
+    writeExtension('admin-fixture');
+    if ($registered) {
+        Extension::query()->create(['identifier' => 'admin-fixture', 'version' => '1.0.0', 'enabled' => true]);
+    }
+
+    $package = fn (): UploadedFile => extensionPackage(['id' => 'admin-fixture', 'name' => 'Replacement', 'version' => '2.0.0']);
+
+    $this->post(route('api.admin.extensions.install'), ['package' => $package(), 'enable' => 'false'], ['Accept' => 'application/json'])
+        ->assertStatus(Response::HTTP_CONFLICT)
+        ->assertJsonPath('errors.0.code', 'ExtensionAlreadyInstalledException')
+        ->assertJsonPath('errors.0.detail', 'Extension "admin-fixture" v1.0.0 is already installed; replacing it with v2.0.0 must be confirmed.')
+        ->assertJsonPath('errors.0.meta.identifier', 'admin-fixture')
+        ->assertJsonPath('errors.0.meta.installed_version', '1.0.0')
+        ->assertJsonPath('errors.0.meta.version', '2.0.0')
+        ->assertJsonPath('errors.0.meta.enabled', $registered);
+    expect(File::json($this->extensionsDirectory.'/admin-fixture/extension.json')['version'])->toBe('1.0.0');
+
+    $this->post(route('api.admin.extensions.install'), ['package' => $package(), 'replace' => 'true'], ['Accept' => 'application/json'])
+        ->assertCreated()
+        ->assertJsonPath('data.version', '2.0.0')
+        ->assertJsonPath('data.enabled', $registered);
+    expect(File::json($this->extensionsDirectory.'/admin-fixture/extension.json')['version'])->toBe('2.0.0');
+})->with(['enabled record' => [true], 'unregistered folder' => [false]]);
+test('install rejects a non boolean replace value', function (): void {
+    $response = $this->post(route('api.admin.extensions.install'), ['package' => extensionPackage(['id' => 'admin-fixture', 'name' => 'Fixture', 'version' => '1.0.0']), 'replace' => 'maybe'], ['Accept' => 'application/json']);
+    $response->assertUnprocessable();
+
+    expect(collect($response->json('errors'))->firstWhere('meta.source_field', 'replace')['meta']['rule'] ?? null)->toBe('boolean');
+});
 test('install rejects a non boolean enable value', function (): void {
     $response = $this->post(route('api.admin.extensions.install'), ['package' => extensionPackage(['id' => 'admin-fixture', 'name' => 'Fixture', 'version' => '1.0.0']), 'enable' => 'maybe'], ['Accept' => 'application/json']);
     $response->assertUnprocessable();
@@ -216,15 +289,74 @@ function extensionPackage(array $manifest): UploadedFile
     return new UploadedFile($path, 'bad-probe.pteroext', 'application/zip', null, true);
 }
 
-function writeExtension(string $identifier): void
+/**
+ * @param  array<string, string>  $manifest
+ */
+function writeExtension(string $identifier, array $manifest = []): string
 {
-    (function () use ($identifier): void {
+    return (function () use ($identifier, $manifest): string {
         $path = $this->extensionsDirectory.DIRECTORY_SEPARATOR.$identifier;
         File::ensureDirectoryExists($path);
-        File::put($path.DIRECTORY_SEPARATOR.'extension.json', json_encode(['id' => $identifier, 'name' => 'Admin Fixture', 'version' => '1.0.0'], JSON_THROW_ON_ERROR));
+        File::put($path.DIRECTORY_SEPARATOR.'extension.json', json_encode(['id' => $identifier, 'name' => 'Admin Fixture', 'version' => '1.0.0', ...$manifest], JSON_THROW_ON_ERROR));
         repository()->flushDiscovery();
+
+        return $path;
     })->call(pterodactylTestCase());
 }
+
+test('lists and serves an image icon from the package of a disabled extension', function (): void {
+    $path = writeExtension('admin-fixture', ['icon' => 'resources/icon.png']);
+    File::ensureDirectoryExists($path.'/resources');
+    File::put($path.'/resources/icon.png', png());
+
+    $url = $this->getJson(route('api.admin.extensions'))
+        ->assertOk()
+        ->assertJsonPath('data.0.icon', null)
+        ->assertJsonPath('data.0.enabled', false)
+        ->json('data.0.icon_url');
+    expect($url)->toBe('/api/admin/extensions/admin-fixture/icon?v='.hash('xxh3', png()));
+
+    $served = $this->get($url)->assertOk();
+    expect($served->getContent())->toBe(png());
+    expect($served->headers->get('Content-Type'))->toBe('image/png');
+    expect($served->headers->get('X-Content-Type-Options'))->toBe('nosniff');
+    expect($served->headers->get('Cache-Control'))->toContain('private')->toContain('immutable');
+    expect($served->headers->get('Content-Security-Policy'))->toContain('sandbox');
+});
+
+test('lists a lucide icon name without an icon url', function (): void {
+    writeExtension('admin-fixture', ['icon' => 'life-buoy']);
+
+    $this->getJson(route('api.admin.extensions'))
+        ->assertOk()
+        ->assertJsonPath('data.0.icon', 'life-buoy')
+        ->assertJsonPath('data.0.icon_url', null);
+    $this->getJson(route('api.admin.extensions.icon', ['extension' => 'admin-fixture']))->assertNotFound();
+});
+
+test('does not serve icons that are missing, unreadable, oversized or outside the package', function (string $case): void {
+    $path = writeExtension('admin-fixture', ['icon' => 'icon.png']);
+    $outside = $this->baseDirectory.DIRECTORY_SEPARATOR.'outside.png';
+    File::put($outside, png());
+    match ($case) {
+        'missing' => null,
+        'not an image' => File::put($path.'/icon.png', '<?php echo 1;'),
+        'svg disguised as png' => File::put($path.'/icon.png', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
+        'oversized' => File::put($path.'/icon.png', png().str_repeat("\0", 513 * 1024)),
+        'link outside the package' => symlink($outside, $path.'/icon.png'),
+    };
+
+    $this->getJson(route('api.admin.extensions'))->assertOk()->assertJsonPath('data.0.icon_url', null);
+    $this->getJson(route('api.admin.extensions.icon', ['extension' => 'admin-fixture']))->assertNotFound();
+})->with(['missing', 'not an image', 'svg disguised as png', 'oversized', 'link outside the package']);
+
+test('icon for an unknown extension or one without an icon returns not found', function (): void {
+    writeExtension('admin-fixture');
+
+    $this->getJson(route('api.admin.extensions'))->assertOk()->assertJsonPath('data.0.icon', null)->assertJsonPath('data.0.icon_url', null);
+    $this->getJson(route('api.admin.extensions.icon', ['extension' => 'admin-fixture']))->assertNotFound();
+    $this->getJson(route('api.admin.extensions.icon', ['extension' => 'missing']))->assertNotFound();
+});
 
 test('secret settings are masked by the admin endpoint and encrypted on disk', function (): void {
     $settings = registerSettings();
@@ -320,16 +452,18 @@ test('file uploads are rejected by content size and target', function (): void {
     $this->post(route('api.admin.extensions.settings.file', ['extension' => 'missing', 'input' => 'logo']), ['file' => settingFile(png())], $headers)->assertNotFound();
     expect(Storage::disk('local')->allFiles())->toBe([]);
 });
-test('removing an extension deletes its uploaded files and their references', function (): void {
+test('removing an extension deletes its uploaded files, settings, secrets and subuser grants', function (): void {
     Storage::fake('local');
     registerSettings();
     Extension::query()->create(['identifier' => 'admin-fixture', 'version' => '1.0.0', 'enabled' => false]);
     $this->post(route('api.admin.extensions.settings.file', ['extension' => 'admin-fixture', 'input' => 'logo']), ['file' => settingFile(png())], ['Accept' => 'application/json'])->assertOk();
-    $this->patchJson(route('api.admin.extensions.settings.update', ['extension' => 'admin-fixture']), ['settings' => ['greeting' => 'kept']])->assertOk();
+    $this->patchJson(route('api.admin.extensions.settings.update', ['extension' => 'admin-fixture']), ['settings' => ['greeting' => 'changed', 'api_key' => 'private-token']])->assertOk();
+    $subuser = Subuser::factory()->create(['permissions' => ['control.console', 'ext.admin-fixture.view', 'ext.admin-fixture-two.view']]);
+    repository()->settings('admin-fixture')->forUser($subuser->user)->set('theme', 'dark');
     expect(Storage::disk('local')->allFiles())->toHaveCount(1);
 
     $this->delete(route('api.admin.extensions.delete', ['extension' => 'admin-fixture']))->assertStatus(Response::HTTP_NO_CONTENT);
     expect(Storage::disk('local')->allFiles())->toBe([]);
-    $this->assertDatabaseMissing('extension_settings', ['extension' => 'admin-fixture', 'key' => 'logo']);
-    $this->assertDatabaseHas('extension_settings', ['extension' => 'admin-fixture', 'key' => 'greeting']);
+    $this->assertDatabaseMissing('extension_settings', ['extension' => 'admin-fixture']);
+    expect($subuser->refresh()->permissions)->toBe(['control.console', 'ext.admin-fixture-two.view']);
 });

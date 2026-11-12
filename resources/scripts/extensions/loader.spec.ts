@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExtensionSetupContext } from '@/sdk';
-import type { ExtensionModule, SiteExtensionEntry } from '@/extensions/loader';
+import type { ExtensionModule } from '@/extensions/loader';
+import type { SiteExtensionEntry } from '@/extensions/registry';
 import type * as RegistryModule from '@/extensions/registry';
 import type * as LoaderModule from '@/extensions/loader';
 
@@ -52,11 +53,29 @@ describe('extensions/loader', () => {
         expect(setup).toHaveBeenCalledTimes(1);
 
         const context = setup.mock.calls[0]![0];
+
         expect(context.meta).toEqual({ id: 'demo', version: '1.2.3' });
         expect(context.config).toEqual({ greeting: 'hi' });
 
         expect(registry.getSlotComponents('dashboard.before')).toHaveLength(1);
         expect(registry.getExtensionScreens('server')).toHaveLength(1);
+        expect(registry.getExtensionStates()).toEqual([{ id: 'demo', status: 'loaded' }]);
+    });
+
+    it('runs the same setup on the sign-in pages, where guests are sent no screens or view overrides', async () => {
+        stubExtensions([{ id: 'demo', entry: '/assets/extensions/demo/client.js' }]);
+
+        const setup = vi.fn((ctx: ExtensionSetupContext) => {
+            ctx.slots.register('auth.login.after', Component);
+            ctx.screens.register('votes', async () => ({ default: Component }));
+            ctx.views.override('dashboard.serverCard', Component);
+        });
+
+        await loader.loadExtensions(vi.fn(async () => ({ default: { setup } })));
+
+        expect(registry.getSlotComponents('auth.login.after')).toHaveLength(1);
+        expect(registry.getExtensionScreens('server')).toHaveLength(0);
+        expect(registry.getViewOverride('demo', 'dashboard.serverCard')).toBeUndefined();
         expect(registry.getExtensionStates()).toEqual([{ id: 'demo', status: 'loaded' }]);
     });
 
@@ -108,6 +127,7 @@ describe('extensions/loader', () => {
                 },
             },
         };
+
         resolvers.get('/assets/extensions/second/client.js')?.(extensionModule);
         await vi.waitFor(() => expect(setupOrder).toEqual(['second']));
         expect(registry.getSlotComponents('dashboard.before').map((item) => item.extensionId)).toEqual(['second']);
@@ -129,6 +149,35 @@ describe('extensions/loader', () => {
 
         expect(registry.getExtensionStates()).toEqual([
             { id: 'empty', status: 'failed', error: 'boot: bundle has no default export with a setup() function' },
+        ]);
+    });
+
+    it("runs the setup of the active theme chain's entries, and loads a theme without one", async () => {
+        stubExtensions([
+            {
+                id: 'aurora',
+                entry: '/assets/extensions/aurora/client.js',
+                theme: true,
+                screens: [{ id: 'status', area: 'server', path: 'status', nav: { label: 'Status' } }],
+            },
+            { id: 'paper', entry: '/assets/extensions/paper/client.js', theme: true },
+        ]);
+
+        const setup = vi.fn((ctx: ExtensionSetupContext) => {
+            ctx.slots.register('nav.items.after', Component);
+            ctx.screens.register('status', async () => ({ default: Component }));
+        });
+
+        await loader.loadExtensions(
+            vi.fn(async (url: string) => ({ default: url.includes('aurora') ? { views: {}, setup } : { views: {} } }))
+        );
+
+        expect(setup).toHaveBeenCalledTimes(1);
+        expect(registry.getSlotComponents('nav.items.after')).toHaveLength(1);
+        expect(registry.getExtensionScreens('server')).toHaveLength(1);
+        expect(registry.getExtensionStates()).toEqual([
+            { id: 'aurora', status: 'loaded' },
+            { id: 'paper', status: 'loaded' },
         ]);
     });
 
@@ -186,6 +235,7 @@ describe('extensions/loader', () => {
         stubExtensions([{ id: 'hung', entry: '/assets/extensions/hung/client.js' }]);
 
         const loading = loader.loadExtensions(vi.fn(() => new Promise<ExtensionModule>(() => {})));
+
         await vi.advanceTimersByTimeAsync(loader.EXTENSION_IMPORT_TIMEOUT_MS);
         await loading;
 
@@ -210,11 +260,13 @@ describe('extensions/loader', () => {
         const setup = vi.fn((context: ExtensionSetupContext) => context.slots.register('dashboard.before', Component));
 
         const loading = loader.loadExtensions(importer);
+
         await vi.advanceTimersByTimeAsync(loader.EXTENSION_IMPORT_TIMEOUT_MS);
         await loading;
         expect(registry.getExtensionLoadState('slow')?.status).toBe('failed');
 
         const retry = loader.retryExtension('slow');
+
         expect(registry.getExtensionStates()).toEqual([{ id: 'slow', status: 'loading' }]);
         expect(loader.canRetryExtension('slow')).toBe(false);
         resolve({ default: { setup } });
@@ -248,6 +300,7 @@ describe('extensions/loader', () => {
         vi.stubGlobal('window', { SiteConfiguration: {} });
 
         const importer = vi.fn();
+
         await loader.loadExtensions(importer);
 
         expect(importer).not.toHaveBeenCalled();
@@ -261,6 +314,7 @@ it('never runs setup after a timed-out import eventually resolves', async () => 
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const registry = await import('@/extensions/registry');
     const loader = await import('@/extensions/loader');
+
     stubExtensions([{ id: 'late', entry: '/late.js' }]);
     let resolve!: (module: ExtensionModule) => void;
     const setup = vi.fn((context: ExtensionSetupContext) => context.slots.register('dashboard.before', Component));
@@ -270,6 +324,7 @@ it('never runs setup after a timed-out import eventually resolves', async () => 
                 resolve = done;
             })
     );
+
     await vi.advanceTimersByTimeAsync(loader.EXTENSION_IMPORT_TIMEOUT_MS);
     await pending;
     resolve({ default: { setup } });
@@ -279,29 +334,35 @@ it('never runs setup after a timed-out import eventually resolves', async () => 
     vi.useRealTimers();
 });
 
-describe('declared component replacements', () => {
+describe('declared view overrides', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.spyOn(console, 'error').mockImplementation(() => {});
     });
-    it('registers replacements atomically and exposes their declared owner', async () => {
-        stubExtensions([{ id: 'views', entry: '/views.js', components: ['dashboard.serverCard'] }]);
+    it('registers overrides atomically and lists their owners in configured order', async () => {
+        stubExtensions([
+            { id: 'first', entry: '/first.js', views: ['dashboard.serverCard'] },
+            { id: 'second', entry: '/second.js', views: ['dashboard.serverCard'] },
+        ]);
         const registry = await import('./registry');
         const loader = await import('./loader');
+
         await loader.loadExtensions(async () => ({
             default: {
                 setup(ctx: ExtensionSetupContext) {
-                    ctx.components.replace('dashboard.serverCard', Component);
+                    ctx.views.override('dashboard.serverCard', Component);
                 },
             },
         }));
-        expect(registry.getComponentOwner('dashboard.serverCard')).toBe('views');
-        expect(registry.getComponentReplacement('dashboard.serverCard')).toBe(Component);
+        expect(registry.getViewOwners('dashboard.serverCard')).toEqual(['first', 'second']);
+        expect(registry.getViewOverride('first', 'dashboard.serverCard')).toBe(Component);
+        expect(registry.getViewOverride('second', 'dashboard.serverCard')).toBe(Component);
     });
-    it('aborts slots as well when a declared replacement implementation is missing', async () => {
-        stubExtensions([{ id: 'views', entry: '/views.js', components: ['dashboard.serverCard'] }]);
+    it('aborts slots as well when a declared override implementation is missing', async () => {
+        stubExtensions([{ id: 'views', entry: '/views.js', views: ['dashboard.serverCard'] }]);
         const registry = await import('./registry');
         const loader = await import('./loader');
+
         await loader.loadExtensions(async () => ({
             default: {
                 setup(ctx: ExtensionSetupContext) {
@@ -310,46 +371,41 @@ describe('declared component replacements', () => {
             },
         }));
         expect(registry.getSlotComponents('dashboard.before')).toHaveLength(0);
-        expect(registry.getComponentReplacement('dashboard.serverCard')).toBeUndefined();
+        expect(registry.getViewOverride('views', 'dashboard.serverCard')).toBeUndefined();
         expect(registry.getExtensionStates()[0].error).toContain('Missing implementation');
     });
-    it('rejects undeclared duplicate and invalid component registrations', async () => {
+    it('rejects undeclared duplicate and invalid overrides', async () => {
         const registry = await import('./registry');
-        registry.prepareExtensions([{ id: 'views', entry: '/views.js', components: ['dashboard.serverCard'] }]);
+
+        registry.prepareExtensions([{ id: 'views', entry: '/views.js', views: ['dashboard.serverCard'] }]);
         const batch = registry.createExtensionRegistryBatch();
-        expect(() => registry.registerComponentReplacement('views', 'server.files.details', Component, batch)).toThrow(
-            'ui.components'
+
+        expect(() => registry.registerViewOverride('views', 'server.files.details', Component, batch)).toThrow(
+            'ui.views'
         );
-        expect(() =>
-            registry.registerComponentReplacement('views', 'dashboard.serverCard', {} as never, batch)
-        ).toThrow('Invalid implementation');
-        registry.registerComponentReplacement('views', 'dashboard.serverCard', Component, batch);
-        expect(() => registry.registerComponentReplacement('views', 'dashboard.serverCard', Component, batch)).toThrow(
+        expect(() => registry.registerViewOverride('views', 'dashboard.serverCard', {} as never, batch)).toThrow(
+            'Invalid implementation'
+        );
+        registry.registerViewOverride('views', 'dashboard.serverCard', Component, batch);
+        expect(() => registry.registerViewOverride('views', 'dashboard.serverCard', Component, batch)).toThrow(
             'Duplicate'
         );
         registry.abortExtensionRegistryBatch(batch);
-        expect(batch.components.size).toBe(0);
-        expect(() => registry.registerComponentReplacement('views', 'dashboard.serverCard', Component, batch)).toThrow(
+        expect(() => registry.registerViewOverride('views', 'dashboard.serverCard', Component, batch)).toThrow(
             'closed'
         );
     });
-    it('rejects both conflicting owners independently of order and loads unrelated extensions', async () => {
+    it('rejects malformed view names in the manifest', async () => {
         stubExtensions([
-            { id: 'first', entry: '/first.js', components: ['dashboard.serverCard'] },
-            { id: 'second', entry: '/second.js', components: ['dashboard.serverCard'] },
+            { id: 'bad', entry: '/bad.js', views: ['Not A View'] },
             { id: 'healthy', entry: '/healthy.js' },
         ]);
         const registry = await import('./registry');
         const loader = await import('./loader');
         const importer = vi.fn(async () => ({ default: { setup() {} } }));
+
         await loader.loadExtensions(importer);
         expect(importer).toHaveBeenCalledExactlyOnceWith('/healthy.js');
-        expect(registry.getComponentOwner('dashboard.serverCard')).toBeUndefined();
-        expect(
-            registry
-                .getExtensionStates()
-                .filter((state) => state.status === 'failed')
-                .map((state) => state.id)
-        ).toEqual(['first', 'second']);
+        expect(registry.getExtensionStates().find((state) => state.id === 'bad')?.error).toContain('view name');
     });
 });

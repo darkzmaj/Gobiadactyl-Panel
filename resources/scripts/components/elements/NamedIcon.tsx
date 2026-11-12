@@ -13,6 +13,7 @@ import {
     type LucideProps,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { getThemeIcon, type ThemeIcon } from '@/views/theme';
 import type * as IconCatalogModule from './iconCatalog';
 
 // Names that render immediately; every other name waits for the lazily loaded icon catalog.
@@ -39,20 +40,27 @@ function loadCatalog(): Promise<IconCatalog | null> {
         .catch(() => null)
         .then((loaded) => {
             catalog = loaded;
-            listeners.forEach((listener) => listener());
+            for (const listener of listeners) {
+                listener();
+            }
+
             return loaded;
         });
+
     return pending;
 }
 
 function subscribeCatalog(listener: () => void): () => void {
     listeners.add(listener);
     void loadCatalog();
+
     return () => {
         listeners.delete(listener);
     };
 }
+
 const subscribeNothing = () => () => {};
+
 const getCatalog = () => catalog;
 
 /** Every icon name this panel can render. */
@@ -60,11 +68,15 @@ export async function loadIconNames(): Promise<readonly string[]> {
     return (await loadCatalog())?.iconNames ?? [...bundled.keys()];
 }
 
-/** The icon for a name: `undefined` while the icon set loads, `null` when the name is unknown. */
-export function useNamedIcon(name: string): LucideIcon | null | undefined {
-    const immediate = bundled.get(name);
+/** The icon for a name, the active theme's first: `undefined` while the icon set loads, `null` when unknown. */
+export function useNamedIcon(name: string): ThemeIcon | null | undefined {
+    const immediate = getThemeIcon(name) ?? bundled.get(name);
     const loaded = useSyncExternalStore(immediate ? subscribeNothing : subscribeCatalog, getCatalog);
-    if (immediate) return immediate;
+
+    if (immediate) {
+        return immediate;
+    }
+
     return loaded === undefined ? undefined : (loaded?.resolveIcon(name) ?? null);
 }
 
@@ -77,9 +89,12 @@ export interface NamedIconProps extends Omit<LucideProps, 'ref' | 'name'> {
 
 export default function NamedIcon({ name, fallback = Puzzle, className, size = '1em', ...rest }: NamedIconProps) {
     const Resolved = useNamedIcon(name);
+
     if (Resolved === undefined) {
         return <span aria-hidden className={cn('inline-block', className)} style={{ width: size, height: size }} />;
     }
+
     const Component = Resolved ?? fallback;
+
     return <Component className={cn('inline-block', className)} size={size} {...rest} />;
 }

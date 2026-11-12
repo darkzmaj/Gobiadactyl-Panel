@@ -7,9 +7,9 @@ namespace GobiaCore\Console\Update;
 use GobiaCore\Services\CompatibilityReport;
 use Illuminate\Console\Command;
 use Pterodactyl\Contracts\Extensions\SetsExtensionEnabled;
-use Pterodactyl\Contracts\Themes\AppliesThemes;
+use Pterodactyl\Contracts\Themes\ActivatesThemes;
 use Pterodactyl\Services\Extensions\ExtensionRepository;
-use Pterodactyl\Services\Themes\ThemeService;
+use Pterodactyl\Services\Themes\ThemeRepository;
 use Throwable;
 
 /**
@@ -26,14 +26,8 @@ class UpdateFinalizeCommand extends Command
 
     protected $hidden = true;
 
-    public function handle(ExtensionRepository $extensions, SetsExtensionEnabled $installer, AppliesThemes $themes, ThemeService $themeService, CompatibilityReport $report): int
+    public function handle(ExtensionRepository $extensions, SetsExtensionEnabled $installer, ActivatesThemes $themes, ThemeRepository $themeRepository, CompatibilityReport $report): int
     {
-        $theme = (string) config('gobia_updater.theme');
-        if ($theme !== '' && isset($themeService->discovered()[$theme])) {
-            $themes->apply($theme);
-            $this->line('Theme '.$theme.' applied.');
-        }
-
         $records = $extensions->records();
         $bundled = array_keys((array) ($report->release()['extensions'] ?? []));
         $failed = false;
@@ -52,6 +46,18 @@ class UpdateFinalizeCommand extends Command
                 // A broken third party extension must not undo the update; a broken Gobia extension must.
                 $this->error('Extension '.$manifest->id.': '.$exception->getMessage());
                 $failed = $failed || str_starts_with($manifest->id, 'gobia-');
+            }
+        }
+
+        // The theme is an extension since Pterodactyl's theme platform: the loop above republished it, so activate it last.
+        $theme = (string) config('gobia_updater.theme');
+        if ($theme !== '' && $themeRepository->installed()->has($theme)) {
+            try {
+                $themes->activate($theme);
+                $this->line('Theme '.$theme.' activated.');
+            } catch (Throwable $throwable) {
+                $this->error('Theme '.$theme.': '.$throwable->getMessage());
+                $failed = true;
             }
         }
 

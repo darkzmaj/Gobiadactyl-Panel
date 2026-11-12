@@ -6,6 +6,8 @@ import { queryClient } from '@/api/queryClient';
 import { router } from '@/router/router';
 import { setupInterceptors } from '@/api/interceptors';
 import AppToaster from '@/components/elements/AppToaster';
+import { ThemeFailureNotice } from '@/views/boot';
+import { ViewSessionProvider } from '@/views/session';
 
 setupInterceptors();
 
@@ -13,10 +15,14 @@ const App = () => {
     useEffect(() => {
         void loadExtensions();
     }, []);
+
     return (
         <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
+            <ViewSessionProvider>
+                <RouterProvider router={router} />
+            </ViewSessionProvider>
             <AppToaster />
+            <ThemeFailureNotice />
         </QueryClientProvider>
     );
 };

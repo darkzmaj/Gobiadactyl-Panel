@@ -1,5 +1,5 @@
 import type { AdminEgg, EggConfigurationBody, EggVariableBody } from '@/api/admin/eggs/queries';
-import { isObject } from '@/lib/objects';
+import { type ExtensionFormValues, initialExtensionValues } from '@/extensions/forms';
 
 export interface EggFormValues {
     name: string;
@@ -13,6 +13,7 @@ export interface EggFormValues {
     configStartup: string;
     configLogs: string;
     configFiles: string;
+    extensions: ExtensionFormValues;
 }
 
 export interface EggVariableValues {
@@ -24,6 +25,32 @@ export interface EggVariableValues {
     userEditable: boolean;
     rules: string;
 }
+
+const envVariableRegex = /^[\w]{1,191}$/;
+
+export const validateVariableName = (value: string): string | undefined => {
+    if (value.length < 1) {
+        return 'A variable name must be provided.';
+    }
+
+    if (value.length > 191) {
+        return 'A variable name must not exceed 191 characters.';
+    }
+
+    return undefined;
+};
+
+export const validateEnvVariable = (value: string): string | undefined => {
+    if (value.length < 1) {
+        return 'An environment variable must be provided.';
+    }
+
+    if (!envVariableRegex.test(value)) {
+        return 'The environment variable may only contain letters, numbers, and underscores.';
+    }
+
+    return undefined;
+};
 
 const featuresToString = (features: string[] | null): string => (features ?? []).join(', ');
 
@@ -37,8 +64,14 @@ const nullIfEmpty = (value: string): string | null => (value.trim().length > 0 ?
 
 const eggVariableOptions = (values: EggVariableValues): string[] => {
     const options: string[] = [];
-    if (values.userViewable) options.push('user_viewable');
-    if (values.userEditable) options.push('user_editable');
+
+    if (values.userViewable) {
+        options.push('user_viewable');
+    }
+
+    if (values.userEditable) {
+        options.push('user_editable');
+    }
 
     return options;
 };
@@ -48,12 +81,10 @@ const dockerImagesToString = (images: Record<string, string>): string =>
         .map(([name, image]) => (name === image ? image : `${name}|${image}`))
         .join('\n');
 
+// Null leaves the field empty so the egg inherits it from the egg it copies configuration from;
+// "{}" is shown as is, since it means the egg has none.
 const prettyJson = <T>(value: T): string => {
     if (value === null || value === undefined) {
-        return '';
-    }
-
-    if (isObject(value) && Object.keys(value).length === 0) {
         return '';
     }
 
@@ -76,6 +107,7 @@ export const eggToFormValues = (egg: AdminEgg): EggFormValues => ({
     configStartup: prettyJson(egg.attributes.config.startup),
     configLogs: prettyJson(egg.attributes.config.logs),
     configFiles: prettyJson(egg.attributes.config.files),
+    extensions: initialExtensionValues(),
 });
 
 export const emptyEggFormValues = (): EggFormValues => ({
@@ -90,6 +122,7 @@ export const emptyEggFormValues = (): EggFormValues => ({
     configStartup: '',
     configLogs: '',
     configFiles: '',
+    extensions: initialExtensionValues(),
 });
 
 export const toApiValues = (
@@ -112,6 +145,7 @@ export const toApiValues = (
         config_startup: nullIfEmpty(json.configStartup),
         config_logs: nullIfEmpty(json.configLogs),
         config_files: nullIfEmpty(json.configFiles),
+        extensions: values.extensions,
     };
 };
 

@@ -1,9 +1,8 @@
 import React from 'react';
 import { flexRender, type Column, type RowData, type Table as TanStackTable } from '@tanstack/react-table';
-import { cn } from '@/lib/cn';
 import { isString } from '@/lib/objects';
 import { Empty, EmptyDescription } from '@/components/ui/empty';
-import { emptyCompactClass } from '@/components/ui/styles';
+import { useSkin } from '@/themes/skins';
 
 declare module '@tanstack/react-table' {
     interface ColumnMeta<TData extends RowData, TValue> {
@@ -14,7 +13,7 @@ declare module '@tanstack/react-table' {
     }
 }
 
-interface Props<TData extends RowData> {
+export interface DataTableProps<TData extends RowData> {
     table: TanStackTable<TData>;
     /** Replaces the table when there are no rows; a string renders as a compact `Empty` description. */
     emptyState: React.ReactNode;
@@ -32,8 +31,13 @@ const ariaSort = <TData extends RowData>(
         ? (ids.map((id) => table.getColumn(id)?.getIsSorted()).find(Boolean) ?? false)
         : column.getIsSorted();
 
-    if (direction === 'asc') return 'ascending';
-    if (direction === 'desc') return 'descending';
+    if (direction === 'asc') {
+        return 'ascending';
+    }
+
+    if (direction === 'desc') {
+        return 'descending';
+    }
 
     return undefined;
 };
@@ -44,18 +48,16 @@ export default function DataTable<TData extends RowData>({
     className,
     tableClassName,
     isFetching = false,
-}: Props<TData>) {
+}: DataTableProps<TData>) {
     const rows = table.getRowModel().rows;
+    const ui = useSkin('Table', { fetching: isFetching });
 
     return (
-        <div
-            aria-busy={isFetching}
-            className={cn('@container overflow-hidden rounded-xl border border-border/55 bg-card', className)}
-        >
+        <div aria-busy={isFetching} {...ui('root', className)}>
             {rows.length === 0 ? (
-                <div className={cn('flex transition-opacity', isFetching && 'opacity-55')}>
+                <div {...ui('empty')}>
                     {isString(emptyState) ? (
-                        <Empty className={emptyCompactClass}>
+                        <Empty size='compact'>
                             <EmptyDescription>{emptyState}</EmptyDescription>
                         </Empty>
                     ) : (
@@ -63,20 +65,17 @@ export default function DataTable<TData extends RowData>({
                     )}
                 </div>
             ) : (
-                <div className={'relative overflow-x-auto scrollbar-thin scrollbar-thumb-(--scrollbar-thumb)'}>
-                    <table className={cn('w-full border-collapse text-left text-sm', tableClassName)}>
-                        <thead className={'bg-secondary'}>
+                <div {...ui('scroller')}>
+                    <table {...ui('table', tableClassName)}>
+                        <thead {...ui('head')}>
                             {table.getHeaderGroups().map((headerGroup) => (
-                                <tr key={headerGroup.id}>
+                                <tr key={headerGroup.id} {...ui('headerRow')}>
                                     {headerGroup.headers.map((header) => (
                                         <th
                                             key={header.id}
-                                            scope={'col'}
+                                            scope='col'
                                             aria-sort={ariaSort(table, header.column)}
-                                            className={cn(
-                                                'h-11 whitespace-nowrap px-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground',
-                                                header.column.columnDef.meta?.headerClassName
-                                            )}
+                                            {...ui('headerCell', header.column.columnDef.meta?.headerClassName)}
                                         >
                                             {header.isPlaceholder
                                                 ? null
@@ -86,19 +85,11 @@ export default function DataTable<TData extends RowData>({
                                 </tr>
                             ))}
                         </thead>
-                        <tbody
-                            className={cn('divide-y divide-border/55 transition-opacity', isFetching && 'opacity-55')}
-                        >
+                        <tbody {...ui('body')}>
                             {rows.map((row) => (
-                                <tr key={row.id} className={'transition-colors duration-100 hover:bg-secondary/50'}>
+                                <tr key={row.id} {...ui('row')}>
                                     {row.getVisibleCells().map((cell) => (
-                                        <td
-                                            key={cell.id}
-                                            className={cn(
-                                                'px-4 py-3 align-middle text-foreground',
-                                                cell.column.columnDef.meta?.cellClassName
-                                            )}
-                                        >
+                                        <td key={cell.id} {...ui('cell', cell.column.columnDef.meta?.cellClassName)}>
                                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                         </td>
                                     ))}

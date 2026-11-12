@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Contracts\Console\Kernel as ConsoleKernelContract;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,8 +17,11 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
+use Pterodactyl\Console\Kernel;
 use Pterodactyl\Console\Scheduler;
 use Pterodactyl\Exceptions\ApiErrorResponse;
+use Pterodactyl\Exceptions\DisplayException;
+use Pterodactyl\Exceptions\Http\Connection\DaemonConnectionException;
 use Pterodactyl\Http\Middleware\Activity\TrackAPIKey;
 use Pterodactyl\Http\Middleware\Api\Admin\AuthenticateAdmin;
 use Pterodactyl\Http\Middleware\Api\Application\AuthenticateApplicationUser;
@@ -30,9 +34,11 @@ use Pterodactyl\Http\Middleware\EnsureStatefulRequests;
 use Pterodactyl\Http\Middleware\LanguageMiddleware;
 use Pterodactyl\Http\Middleware\MaintenanceMiddleware;
 use Pterodactyl\Http\Middleware\RedirectIfAuthenticated;
+use Pterodactyl\Http\Middleware\RememberThemeFlags;
 use Pterodactyl\Http\Middleware\RequireTwoFactorAuthentication;
 use Pterodactyl\Http\Middleware\SetSecurityHeaders;
 use Pterodactyl\Http\Middleware\VerifyReCaptcha;
+use Pterodactyl\Services\Themes\ThemeResolver;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 $app = Application::configure(basePath: $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__))
@@ -44,7 +50,7 @@ $app = Application::configure(basePath: $_ENV['APP_BASE_PATH'] ?? dirname(__DIR_
             Route::middleware('guest')->prefix('/auth')->group(base_path('routes/auth.php'));
         });
 
-        Route::middleware(['api', RequireTwoFactorAuthentication::class])->group(function (): void {
+        Route::middleware(['api'])->group(function (): void {
             Route::middleware(['application-api', 'throttle:api.application'])
                 ->prefix('/api/application')
                 ->scopeBindings()
@@ -81,7 +87,10 @@ $app = Application::configure(basePath: $_ENV['APP_BASE_PATH'] ?? dirname(__DIR_
 
         $middleware->priority([SubstituteClientBindings::class]);
 
-        $middleware->web(append: LanguageMiddleware::class);
+        $middleware->web(append: [LanguageMiddleware::class, RememberThemeFlags::class]);
+
+        // Written by the SPA, so it is never encrypted.
+        $middleware->encryptCookies(except: [ThemeResolver::SCHEME_COOKIE]);
 
         $middleware->group('api', [
             EnsureStatefulRequests::class,
@@ -116,6 +125,10 @@ $app = Application::configure(basePath: $_ENV['APP_BASE_PATH'] ?? dirname(__DIR_
                 TokenMismatchException::class,
                 ValidationException::class,
             ]);
+        } else {
+            // A failed Wings call is an HTTP exception that still logs its cause.
+            $exceptions->stopIgnoring(HttpException::class)
+                ->dontReportWhen(fn (Throwable $e): bool => $e instanceof HttpException && ! $e instanceof DaemonConnectionException);
         }
 
         $exceptions->dontFlash(['token', 'secret', 'password', 'password_confirmation']);
@@ -126,11 +139,20 @@ $app = Application::configure(basePath: $_ENV['APP_BASE_PATH'] ?? dirname(__DIR_
             ? ApiErrorResponse::render($e)
             : redirect()->guest('/auth/login'));
 
+        // These answer API routes in JSON even when the client does not ask for it.
+        $exceptions->render(fn (DisplayException|DaemonConnectionException $e, Request $request): ?JsonResponse => $request->is('api/*')
+            ? ApiErrorResponse::render($e)
+            : null);
+
         $exceptions->render(fn (Throwable $e, Request $request): ?JsonResponse => $request->expectsJson() && ! $e instanceof HttpResponseException
             ? ApiErrorResponse::render($e)
             : null);
     })
     ->create();
+
+// The panel's console kernel adds extension commands after its own. Artisan resolves the
+// kernel before any provider registers, so it is bound here rather than in a provider.
+$app->singleton(ConsoleKernelContract::class, Kernel::class);
 
 if (isset($_ENV['APP_STORAGE_PATH'])) {
     $app->useStoragePath($_ENV['APP_STORAGE_PATH']);

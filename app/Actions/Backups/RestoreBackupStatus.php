@@ -6,12 +6,13 @@ namespace Pterodactyl\Actions\Backups;
 
 use Pterodactyl\Contracts\Backups\RestoresBackupStatuses;
 use Pterodactyl\Exceptions\Http\HttpForbiddenException;
+use Pterodactyl\Facades\Activity;
 use Pterodactyl\Models\Backup;
 use Pterodactyl\Models\Node;
 
 final class RestoreBackupStatus implements RestoresBackupStatuses
 {
-    public function restoreStatus(string $backupUuid, Node $node): Backup
+    public function restoreStatus(string $backupUuid, Node $node, bool $successful): Backup
     {
         $model = Backup::query()->where('uuid', $backupUuid)->firstOrFail();
 
@@ -19,6 +20,11 @@ final class RestoreBackupStatus implements RestoresBackupStatuses
 
         $model->server->update(['status' => null]);
 
-        return $model->refresh();
+        Activity::event($successful ? 'server:backup.restore-complete' : 'server:backup.restore-failed')
+            ->subject($model->server, $model)
+            ->property('name', $model->name)
+            ->log();
+
+        return $model;
     }
 }

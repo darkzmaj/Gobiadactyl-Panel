@@ -1,7 +1,7 @@
 {
     "name": "pterodactyl-panel",
     "engines": {
-        "node": ">=22"
+        "node": ">=22.12"
     },
     "dependencies": {
         "@base-ui/react": "^1.6.0",
@@ -43,7 +43,7 @@
         "clsx": "^2.1.1",
         "codemirror": "^6.0.2",
         "dayjs": "^1.11.21",
-        "ghostty-web": "^0.4.0",
+        "ghostty-web": "0.4.0",
         "i18next": "^25.8.0",
         "i18next-http-backend": "^3.0.2",
         "i18next-multiload-backend-adapter": "^2.3.0",
@@ -63,6 +63,7 @@
     "devDependencies": {
         "@hey-api/openapi-ts": "0.99.0",
         "@oxlint/plugins": "^1.77.0",
+        "@stylistic/eslint-plugin": "^5.10.0",
         "@tailwindcss/postcss": "^4",
         "@testing-library/dom": "^10",
         "@testing-library/jest-dom": "^6",
@@ -73,10 +74,12 @@
         "@types/react-dom": "^19.3.0",
         "@vitejs/plugin-react-swc": "^4",
         "axe-core": "^4.14.0",
+        "concurrently": "^10.0.5",
         "jsdom": "^26.1.0",
         "material-icon-theme": "5.38.1",
         "oxfmt": "^0.72.0",
         "oxlint": "^1.77.0",
+        "oxlint-tsgolint": "^7.0.2003",
         "pixelmatch": "^8.0.0",
         "playwright-core": "^1.63.0",
         "pngjs": "^7.0.0",
@@ -95,10 +98,10 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "tsc": "tsc --noEmit && tsc --project tools/oxlint/rules && npm --prefix packages/hello-world run typecheck",
-        "lint": "oxfmt --check resources/scripts packages/hello-world tools/oxlint && oxlint resources/scripts packages/hello-world/src/client",
+        "lint": "oxfmt --check resources/scripts packages/hello-world packages/sdk/docs-samples tools/oxlint && oxlint --type-aware resources/scripts packages/hello-world/src/client tools/oxlint",
         "api:generate": "openapi-ts",
         "extension:api:generate": "node scripts/generate-extension-api.mjs",
-        "api:refresh": "PTERODACTYL_EXTENSIONS_ENABLED=false composer docs:openapi:verify && npm run api:generate",
+        "api:refresh": "APP_URL=http://localhost PTERODACTYL_EXTENSIONS_ENABLED=false composer docs:openapi:verify && npm run api:generate",
         "api:check": "npm run sdk:check && npm run tsc && npm run lint",
         "dev": "vite",
         "dev:gobia": "node scripts/gobia/dev.mjs",
@@ -111,8 +114,8 @@
         "build:production": "npm run build --",
         "build:vite": "npm run build && npm --prefix packages/hello-world run build",
         "serve": "vite",
-        "sdk:generate": "node scripts/generate-sdk-types.mjs && node scripts/generate-sdk-icons.mjs",
-        "sdk:check": "node scripts/generate-sdk-types.mjs --check && node scripts/generate-sdk-icons.mjs --check && npm run sdk:testing && vitest run packages/sdk/types-drift.spec.ts",
+        "sdk:generate": "node scripts/generate-sdk-types.mjs && node scripts/generate-sdk-icons.mjs && node scripts/generate-sdk-views.mjs && node scripts/generate-core-classes.mjs && node scripts/generate-sdk-docs.mjs",
+        "sdk:check": "node scripts/generate-sdk-types.mjs --check && node scripts/generate-sdk-icons.mjs --check && node scripts/generate-sdk-views.mjs --check && node scripts/generate-sdk-docs.mjs --check && tsc --project packages/sdk/docs-samples && npm run sdk:testing && vitest run packages/sdk/types-drift.spec.ts",
         "sdk:testing": "node scripts/build-sdk-testing.mjs",
         "pretest": "npm run sdk:testing"
     },

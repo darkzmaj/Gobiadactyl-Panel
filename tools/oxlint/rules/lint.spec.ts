@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,12 +10,8 @@ let directory: string;
 
 beforeAll(() => {
     directory = mkdtempSync(resolve(tmpdir(), 'panel-lint-'));
-    const config = JSON.parse(readFileSync(resolve(root, '.oxlintrc.json'), 'utf8'));
-    config.jsPlugins = config.jsPlugins.map((plugin: { name: string; specifier: string }) => ({
-        ...plugin,
-        specifier: resolve(root, plugin.specifier),
-    }));
-    writeFileSync(resolve(directory, '.oxlintrc.json'), JSON.stringify(config));
+    symlinkSync(resolve(root, 'node_modules'), resolve(directory, 'node_modules'));
+    writeFileSync(resolve(directory, '.oxlintrc.json'), JSON.stringify({ extends: [resolve(root, '.oxlintrc.json')] }));
 });
 
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
@@ -23,6 +19,33 @@ afterAll(() => rmSync(directory, { recursive: true, force: true }));
 const components = 'resources/scripts/components/Probe.tsx';
 const api = 'resources/scripts/api/queries.ts';
 const generated = 'resources/scripts/api/generated/types.gen.ts';
+const classic = 'resources/scripts/themes/classic/views/Probe.tsx';
+
+type LintDiagnostic = {
+    readonly code?: string;
+    readonly severity: string;
+};
+
+type LintResult = {
+    readonly status: number | null;
+    readonly diagnostics: readonly LintDiagnostic[];
+};
+
+function lint(path: string, source: string): LintResult {
+    const filename = resolve(directory, path);
+
+    mkdirSync(dirname(filename), { recursive: true });
+    writeFileSync(filename, source);
+    const result = spawnSync(resolve(root, 'node_modules/.bin/oxlint'), ['--format', 'json', path], {
+        cwd: directory,
+        encoding: 'utf8',
+    });
+
+    rmSync(filename);
+    expect(result.stderr).toBe('');
+
+    return { status: result.status, diagnostics: JSON.parse(result.stdout).diagnostics };
+}
 
 it.each([
     [
@@ -106,6 +129,24 @@ it.each([
         'design-tokens',
     ],
     [
+        'rejects core imports in the classic theme',
+        classic,
+        "import Button from '@/components/elements/Button';",
+        'classic-theme-imports',
+    ],
+    [
+        'rejects relative imports that leave the classic theme',
+        classic,
+        "import { View } from '../../../views/View';",
+        'classic-theme-imports',
+    ],
+    [
+        'rejects other packages in the classic theme',
+        classic,
+        "import { cva } from 'class-variance-authority';",
+        'classic-theme-imports',
+    ],
+    [
         'rejects literal SVG palette paint',
         components,
         'export const View = () => <svg fill="black" />;',
@@ -113,6 +154,7 @@ it.each([
     ],
 ])('%s', (_name, path, source, rule) => {
     const result = lint(path, source);
+
     expect(result.status).toBe(1);
     expect(result.diagnostics.some((diagnostic) => diagnostic.code?.includes(rule))).toBe(true);
 });
@@ -140,6 +182,11 @@ it.each([
         'export const View = () => <div className="bg-surface" style={{ color: "var(--color-text)" }} />;',
     ],
     [
+        'allows the classic theme its public imports',
+        classic,
+        "import { lazy } from 'react';\nimport { Layers } from 'lucide-react';\nimport { Button } from '@/sdk';\nimport { View } from '@/sdk/theme';\nimport { classicSkins } from '../skins';\nexport const views = { lazy, Layers, Button, View, classicSkins, load: () => import('./dashboard') };",
+    ],
+    [
         'ignores examples in comments',
         components,
         '// bg-red-500; mutationFn: save; http.get(); as unknown as\nexport const value = 1;',
@@ -151,22 +198,7 @@ it.each([
     ],
 ])('%s', (_name, path, source) => {
     const result = lint(path, source);
+
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
     expect(result.status).toBe(0);
 });
-
-function lint(
-    path: string,
-    source: string
-): { status: number | null; diagnostics: { code?: string; severity: string }[] } {
-    const filename = resolve(directory, path);
-    mkdirSync(dirname(filename), { recursive: true });
-    writeFileSync(filename, source);
-    const result = spawnSync(resolve(root, 'node_modules/.bin/oxlint'), ['--format', 'json', path], {
-        cwd: directory,
-        encoding: 'utf8',
-    });
-    rmSync(filename);
-    expect(result.stderr).toBe('');
-    return { status: result.status, diagnostics: JSON.parse(result.stdout).diagnostics };
-}

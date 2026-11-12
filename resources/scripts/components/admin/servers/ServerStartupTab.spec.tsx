@@ -2,13 +2,14 @@
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as EggQueries from '@/api/admin/eggs/queries';
 import type * as ServerQueries from '@/api/admin/servers/queries';
 import type { SelectProps } from '@/components/ui/Select';
 import ServerStartupTab from './ServerStartupTab';
 
-const mocks = vi.hoisted(() => ({ fetchEgg: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchEgg: vi.fn(), updateStartup: vi.fn() }));
 
 const variable = (id: number, env: string, defaultValue: string) => ({
     object: 'egg_variable',
@@ -62,7 +63,10 @@ vi.mock('@/components/ui/Select', () => ({
                 disabled={disabled}
                 onChange={(event) => {
                     const choice = choices.find((option) => String(option.value) === event.currentTarget.value);
-                    if (choice && !multiple) onChange(choice.value);
+
+                    if (choice && !multiple) {
+                        onChange(choice.value);
+                    }
                 }}
             >
                 {choices.map((option) => (
@@ -79,17 +83,18 @@ vi.mock('@/components/admin/servers/useServerDetail', () => ({
 }));
 vi.mock('@/api/admin/eggs/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof EggQueries>()),
-    useAdminEggs: () => ({ data: { data: Array.from(eggs.values()) } }),
+    useAdminEggs: () => ({ data: { data: [...eggs.values()] } }),
 }));
 vi.mock('@/api/admin/servers/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof ServerQueries>()),
     useAdminEggForServer: (eggId: number) => ({ data: eggs.get(eggId), isFetching: false }),
     useFetchAdminEggForServer: () => mocks.fetchEgg,
-    useUpdateAdminServerStartup: () => ({ mutateAsync: vi.fn() }),
+    useUpdateAdminServerStartup: () => ({ mutateAsync: mocks.updateStartup }),
 }));
 
 const deferred = <T,>() => {
-    let resolve: (value: T) => void = () => undefined;
+    let resolve: (value: T) => void = () => {};
+
     const promise = new Promise<T>((settle) => {
         resolve = settle;
     });
@@ -105,10 +110,39 @@ beforeEach(() => {
     mocks.fetchEgg.mockImplementation((eggId: number) => Promise.resolve(eggs.get(eggId)));
 });
 
+const tagCheckFailure = new AxiosError('Unprocessable', '422', undefined, undefined, {
+    status: 422,
+    statusText: 'Unprocessable Content',
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+    data: {
+        errors: [
+            { detail: 'node-alpha only accepts eggs tagged Minecraft.', meta: { source_field: 'egg_id', rule: '' } },
+        ],
+    },
+});
+
 describe('ServerStartupTab', () => {
+    it('offers to change the egg anyway when the node does not accept it', async () => {
+        const user = userEvent.setup();
+
+        mocks.updateStartup.mockRejectedValueOnce(tagCheckFailure);
+        render(<ServerStartupTab />);
+
+        await user.selectOptions(screen.getByTestId('eggId'), '2');
+        await user.click(screen.getByRole('button', { name: 'Save Modifications' }));
+        expect(await screen.findByText('node-alpha only accepts eggs tagged Minecraft.')).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Change anyway' }));
+
+        await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+        expect(mocks.updateStartup).toHaveBeenCalledTimes(2);
+        expect(mocks.updateStartup.mock.calls.map(([input]) => input.body.ignore_tags)).toEqual([false, true]);
+    });
+
     it('ignores an egg that finishes loading after a newer egg was picked', async () => {
         const user = userEvent.setup();
         const slowEgg = deferred<ReturnType<typeof egg> | undefined>();
+
         mocks.fetchEgg.mockImplementation((eggId: number) =>
             eggId === 2 ? slowEgg.promise : Promise.resolve(eggs.get(eggId))
         );
@@ -127,6 +161,7 @@ describe('ServerStartupTab', () => {
 
     it("restores the server's own image and variables when switching back to its egg", async () => {
         const user = userEvent.setup();
+
         render(<ServerStartupTab />);
 
         expect(screen.getByTestId('image')).toHaveValue('img:custom');

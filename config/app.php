@@ -5,7 +5,6 @@ declare(strict_types=1);
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Facade;
 use Pterodactyl\Facades\Activity;
-use Pterodactyl\Facades\Alert;
 use Pterodactyl\Facades\LogBatch;
 use Pterodactyl\Facades\LogTarget;
 
@@ -32,6 +31,19 @@ return [
     */
 
     'name' => env('APP_NAME', 'Pterodactyl'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Application Logo
+    |--------------------------------------------------------------------------
+    |
+    | The stored name of the logo uploaded from the admin settings, which the
+    | panel shows as its favicon and on the login page and navigation bar.
+    | Empty while the panel uses its default branding.
+    |
+    */
+
+    'logo' => '',
 
     /*
     |--------------------------------------------------------------------------
@@ -154,7 +166,7 @@ return [
     */
 
     'exceptions' => [
-        'report_all' => env('APP_REPORT_ALL_EXCEPTIONS', false),
+        'report_all' => (bool) env('APP_REPORT_ALL_EXCEPTIONS', false),
     ],
 
     /*
@@ -169,7 +181,6 @@ return [
     */
 
     'aliases' => Facade::defaultAliases()->merge([
-        'Alert' => Alert::class,
         'Carbon' => Carbon::class,
 
         // Custom Facades

@@ -164,11 +164,19 @@ class TemplateApiTest extends IntegrationTestCase
         $this->deleteJson($this->url('/instances/'.$instance->uuid))->assertNoContent();
     }
 
-    /** Authenticates every following request with a new application key holding the given servers permission. */
-    private function key(int $servers): ApiKey
+    /**
+     * Authenticates every following request with a new application key holding the given permission. The Panel lets an
+     * application key reach extension endpoints only with that permission on every resource
+     * (AuthorizeExtensionApplicationRequest), so the key holds it on all of them, servers included.
+     */
+    private function key(int $level): ApiKey
     {
         $this->app['auth']->forgetGuards();
-        $key = ApiKey::factory()->create(['user_id' => $this->admin->id, 'key_type' => ApiKey::TYPE_APPLICATION, 'r_servers' => $servers]);
+        $permissions = [];
+        foreach (AdminAcl::getResourceList() as $resource) {
+            $permissions['r_'.$resource] = $level;
+        }
+        $key = ApiKey::factory()->create(['user_id' => $this->admin->id, 'key_type' => ApiKey::TYPE_APPLICATION, ...$permissions]);
         $this->withHeader('Authorization', 'Bearer '.$key->identifier.decrypt($key->token));
 
         return $key;

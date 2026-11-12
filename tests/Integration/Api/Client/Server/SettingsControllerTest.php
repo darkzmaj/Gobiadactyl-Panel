@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Pterodactyl\Tests\Pest\Integration\Api\Client\Server\SettingsControllerTest;
 
 use Illuminate\Http\Response;
+use Pterodactyl\Actions\Servers\UpdateServerDockerImage;
+use Pterodactyl\Contracts\Servers\UpdatesServerDockerImage;
 use Pterodactyl\Enum\Permissions;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
@@ -29,7 +31,32 @@ test('server name can be changed', function (array $permissions): void {
     $server = $server->refresh();
     expect($server->name)->toBe('Test Server Name');
     expect($server->description)->toBe('This is a test server.');
+    $this->assertActivityFor('server:settings.rename', $user, $server);
+    $this->assertActivityFor('server:settings.description', $user, $server);
 })->with('renamePermissionsDataProvider');
+test('renaming a server keeps its owner, external id and a description it is not sent', function (): void {
+    [$user, $server] = $this->generateTestAccount();
+    $server->forceFill(['external_id' => 'ext-rename', 'description' => 'Kept description.'])->saveOrFail();
+    $owner = $server->owner_id;
+
+    $this->actingAs($user)->postJson("/api/client/servers/{$server->uuid}/settings/rename", ['name' => 'Renamed Only'])->assertNoContent();
+
+    $server->refresh();
+    expect($server->name)->toBe('Renamed Only')
+        ->and($server->description)->toBe('Kept description.')
+        ->and($server->external_id)->toBe('ext-rename')
+        ->and($server->owner_id)->toBe($owner);
+
+    $this->actingAs($user)->postJson("/api/client/servers/{$server->uuid}/settings/rename", ['name' => 'Renamed Again', 'description' => null])->assertNoContent();
+
+    expect($server->refresh()->description)->toBe('')
+        ->and($server->external_id)->toBe('ext-rename');
+
+    $this->actingAs($user)->postJson("/api/client/servers/{$server->uuid}/settings/rename", ['name' => 'Renamed Again', 'description' => ['text']])
+        ->assertUnprocessable()
+        ->assertJsonPath('errors.0.meta.source_field', 'description')
+        ->assertJsonPath('errors.0.meta.rule', 'string');
+});
 test('subuser cannot change server name without permission', function (): void {
     [$user, $server] = $this->generateTestAccount([Permissions::WebsocketConnect->value]);
     $originalName = $server->name;
@@ -46,6 +73,7 @@ test('server can be reinstalled', function (array $permissions): void {
     $fake->assertReinstalled();
     $server = $server->refresh();
     expect($server->status)->toBe(Server::STATUS_INSTALLING);
+    $this->assertActivityFor('server:reinstall', $user, $server);
 })->with('reinstallPermissionsDataProvider');
 test('a server that skips its install script cannot be reinstalled', function (array $permissions): void {
     [$user, $server] = $this->generateTestAccount($permissions);
@@ -73,6 +101,33 @@ test('docker image can be changed', function (): void {
     $target = end($images);
     $this->actingAs($user)->putJson("/api/client/servers/{$server->uuid}/settings/docker-image", ['docker_image' => $target])->assertStatus(Response::HTTP_NO_CONTENT);
     expect($server->refresh()->image)->toBe($target);
+    $this->assertActivityFor('server:startup.image', $user, $server);
+});
+test('docker image change goes through the contract', function (): void {
+    [$user, $server] = $this->generateTestAccount();
+    $images = array_values($server->egg->docker_images);
+    $server->forceFill(['image' => $images[0]])->saveOrFail();
+    $startup = $server->startup;
+    $target = end($images);
+    $spy = new class(new UpdateServerDockerImage()) implements UpdatesServerDockerImage
+    {
+        /** @var list<string> */
+        public array $images = [];
+
+        public function __construct(private readonly UpdatesServerDockerImage $inner) {}
+
+        public function update(Server $server, string $image): Server
+        {
+            $this->images[] = $image;
+
+            return $this->inner->update($server, $image);
+        }
+    };
+    $this->app->instance(UpdatesServerDockerImage::class, $spy);
+    $this->actingAs($user)->putJson("/api/client/servers/{$server->uuid}/settings/docker-image", ['docker_image' => $target])->assertStatus(Response::HTTP_NO_CONTENT);
+    expect($spy->images)->toBe([$target])
+        ->and($server->refresh()->image)->toBe($target)
+        ->and($server->startup)->toBe($startup);
 });
 test('docker image cannot be changed when admin set', function (): void {
     [$user, $server] = $this->generateTestAccount();

@@ -69,5 +69,5 @@ return [
     'spawn_queue_worker' => (bool) env('GOBIA_UPDATE_SPAWN_QUEUE_WORKER', false),
 
     // The theme that is published again after every update.
-    'theme' => 'gobia',
+    'theme' => 'gobia-theme',
 ];
