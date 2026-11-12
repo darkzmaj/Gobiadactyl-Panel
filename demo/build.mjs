@@ -22,7 +22,7 @@ const extensions = ['gobia-theme', 'gobia-core', 'gobia-files'];
 function run(args, cwd) {
     // Quoted for cmd.exe: the repository path may contain spaces.
     const command = process.platform === 'win32' ? `"${vite}"` : vite;
-    const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', env: { ...process.env, PTERODACTYL_BUILD_HASH: 'demo' } });
+    const result = spawnSync(command, process.platform === 'win32' ? args.map((arg) => `"${arg}"`) : args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', env: { ...process.env, PTERODACTYL_BUILD_HASH: 'demo' } });
     if (result.status !== 0) throw new Error(`vite ${args.join(' ')} failed in ${cwd}`);
 }
 
