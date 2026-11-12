@@ -1,0 +1,12 @@
+.git
+.claude
+.github
+**/node_modules
+**/dist
+demo/.build
+vendor
+storage
+public/assets
+tests/Integration
+tests/Unit
+.env*
