@@ -3,6 +3,7 @@ name: Gobia CI
 on:
   push:
     branches:
+      - "main"
       - "gobia-2"
       - "gobia-ci/**"
   workflow_dispatch:
