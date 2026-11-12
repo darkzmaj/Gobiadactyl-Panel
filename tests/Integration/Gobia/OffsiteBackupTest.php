@@ -441,6 +441,8 @@ test('only so many backups run at once per node', function (): void {
 
 test('the schedule queues a backup when it fires and a stuck run is given up', function (): void {
     Policy::query()->where('scope', Policy::SCOPE_GLOBAL)->update(['enabled' => true, 'cron' => '0 4 * * *', 'timezone' => 'UTC']);
+    // More than one server: strict mode refuses relations lazy loaded from a list, so this catches a missing eager load.
+    $this->createServerModel(['node_id' => $this->server->node_id]);
     $scheduler = resolve(Scheduler::class);
 
     expect($scheduler->tick(new DateTimeImmutable('2026-07-01 03:59:00 UTC'))['queued'])->toBe(0);

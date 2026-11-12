@@ -72,8 +72,10 @@ fixtures) is gone: `gobia-core` overrides `page.dashboard`, `gobia-files` overri
   which commits it, so `InstallsGobiaExtensions` opens a real transaction again after installing and rolls back before dropping its tables;
   `BuildsTemplates` uses `DatabaseTransactions` too, so the template and legacy import tests no longer leave rows behind. Upstream suites built on
   `IntegrationTestCase` still keep their rows, so the Gobia tests that count everything an administrator sees compare against what was there before.
-  Open: `OffsiteBackupTest` "the schedule queues a backup" passes alone, in the Gobia suite and against a used database, but fails after the whole
-  upstream suite in one process (some state leaks between tests in that process; not found yet).
+  Fixed: `OffsiteBackupTest` "the schedule queues a backup" failed after the whole suite (Linux CI too) because rows other tests keep made the
+  scheduler's server list longer than one, and strict mode refuses `node` lazy loaded from a list; the scheduler swallowed that as "cannot back
+  up now". The scheduler now eager loads `node` and `transfer` (also one query per chunk instead of per server in production), and the test
+  creates a second server so it fails without the fix.
 * **Dependencies (2026-11-12):** `composer update "symfony/*" phpseclib/phpseclib -W` and `npm audit fix` cleared every Composer
   advisory (14, two high) and the high and moderate npm ones (`follow-redirects`, `seroval`) within the allowed ranges. Left for
   upstream: `i18next-http-backend` (low; needs a major upgrade; the language in its query string comes from the panel's own

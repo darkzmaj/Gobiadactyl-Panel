@@ -67,7 +67,7 @@ export default function SettingsContainer() {
                     {tab === 'advanced' && <AdvancedSettingsForm settings={settings} />}
                 </div>
             ) : (
-                <Spinner size="large" centered />
+                <Spinner size='large' centered />
             )}
         </AdminContentBlock>
     );

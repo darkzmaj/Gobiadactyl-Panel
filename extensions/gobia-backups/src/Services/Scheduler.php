@@ -42,7 +42,8 @@ class Scheduler
         }
 
         $queued = 0;
-        Server::query()->whereNull('status')->orderBy('id')->chunkById(200, function ($servers) use ($now, &$queued): void {
+        // validateCurrentState() reads node and transfer: loaded with the chunk, not one query per server.
+        Server::query()->with(['node', 'transfer'])->whereNull('status')->orderBy('id')->chunkById(200, function ($servers) use ($now, &$queued): void {
             foreach ($servers as $server) {
                 $policy = $this->policies->effective($server);
                 if (! $policy['enabled'] || ! $this->policies->isDue($policy, $now)) {
