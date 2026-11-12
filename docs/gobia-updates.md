@@ -67,19 +67,21 @@ signed package, built from the Gobia repository. Nothing is merged from upstream
 
 ## Configuration (`.env`)
 
-Most installations need one line:
+Releases come from the public repository `darkzmaj/Gobiadactyl-Panel` (formerly `Cryvex-Dev/panel.gobia.cloud`), so a standard
+installation needs no configuration. A token is only needed if the repository is ever made private again, or to raise GitHub's
+anonymous rate limit:
 
 ```
-GOBIA_UPDATE_GITHUB_TOKEN=github_pat_...     # fine-grained token, repository Cryvex-Dev/panel.gobia.cloud, "Contents: Read-only" only
+GOBIA_UPDATE_GITHUB_TOKEN=github_pat_...     # fine-grained token, repository darkzmaj/Gobiadactyl-Panel, "Contents: Read-only" only
 ```
 
-The token is only needed while the repository is private. It is read by the server, never sent to the browser, never returned by an API
+The token is read by the server, never sent to the browser, never returned by an API
 and redacted from logs.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `GOBIA_UPDATE_PROVIDER` | `github` | `directory` installs from a local folder (`GOBIA_UPDATE_DIRECTORY`): development and air gapped servers |
-| `GOBIA_UPDATE_REPOSITORY` | `Cryvex-Dev/panel.gobia.cloud` | The only repository releases come from |
+| `GOBIA_UPDATE_REPOSITORY` | `darkzmaj/Gobiadactyl-Panel` | The only repository releases come from |
 | `GOBIA_UPDATE_PUBLIC_KEY` | the project key in `gobia_updater.php` | Base64 Ed25519 public key releases must be signed with |
 | `GOBIA_UPDATE_RUNNER` | `in-place`, or `release-directory` when `GOBIA_UPDATE_INSTALL_ROOT` is set | How code goes live |
 | `GOBIA_UPDATE_HELPER` | `/usr/local/sbin/gobia-update-helper` | Root owned helper (optional for `in-place`) |

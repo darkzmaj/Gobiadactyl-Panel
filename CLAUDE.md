@@ -13,9 +13,9 @@ Current technical base: **Pterodactyl 2.0** (alpha/beta, moving target).
 | --- | --- |
 | Official upstream | https://github.com/pterodactyl/panel |
 | Upstream branch | `2.0-develop` (until a stable 2.0 branch replaces it) |
-| Gobia origin | https://github.com/Cryvex-Dev/panel.gobia.cloud |
+| Gobia origin | https://github.com/darkzmaj/Gobiadactyl-Panel (formerly Cryvex-Dev/panel.gobia.cloud) |
 | Official extensions repo | https://github.com/pterodactyl/extensions |
-| Gobia Cloud reference (visual/product only) | https://github.com/Cryvex-Dev/gobia.cloud |
+| Gobia Cloud reference (visual/product only) | https://github.com/KORI-Network/gobia.cloud |
 | Gobia 1.x functional reference | branch `gobia-1.x-preserved`, tag `gobia-1.15-final` (Pterodactyl 1.15.1 fork) |
 
 Git remotes: **`origin` = Gobia. `upstream` = official Pterodactyl.** Never push to `upstream`. Never confuse them.

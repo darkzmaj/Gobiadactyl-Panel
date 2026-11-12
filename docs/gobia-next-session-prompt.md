@@ -17,7 +17,7 @@ Linux CI is the verdict, never call work finished on a Windows result alone).
   into `gobia-2` with my approval.
 * Open items from that session are listed at the end of `docs/gobia-core-patches.md` ("Changed by the 2026-11-12 sync"). One Pest
   test (`OffsiteBackupTest`, schedule) fails only after the whole upstream suite in one process.
-* Wings: the Gobia Wings fork is `D:\PROJECTS\gobia-wings-sloblock3` (remote `gobia` = `Cryvex-Dev/gobia-wings`, see its `GOBIA.md`
+* Wings: the Gobia Wings fork is `D:\PROJECTS\gobia-wings-sloblock3` (remote `gobia` = `darkzmaj/Gobiadactyl-Wings`, see its `GOBIA.md`
   and Phase 3 report). Benchmarks and the CRIU warm pool research are in `D:\PROJECTS\gobia-wings-benchmarks` (Phase 5). Branch
   `claude/minecraft-wings-perf-b45532` in the panel repo holds earlier Minecraft and Wings performance work. Read all three before
   changing Wings.

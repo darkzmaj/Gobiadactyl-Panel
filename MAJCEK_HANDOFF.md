@@ -306,7 +306,7 @@ Operator and release guide: `docs/gobia-updates.md`. Recorded end to end run: `d
   trusted Linux machine (WSL2 Ubuntu 24.04). The public key (`U/2XlTOgdzsn2lebHDxjkh7HFSNqmYLkm+Hj+3MdVJI=`) is the default in
   `extensions/gobia-core/config/gobia_updater.php`. The secret key lives only in a 0600 file on that machine and was never printed, committed,
   uploaded or put in the CI mirror. **Majcek: take over custody.** Make an offline backup, and put it in the `GOBIA_RELEASE_SIGNING_KEY`
-  secret of `Cryvex-Dev/panel.gobia.cloud` once GitHub Actions works for the organisation. A lost key means installations that trust this
+  secret of `darkzmaj/Gobiadactyl-Panel` (formerly `Cryvex-Dev/panel.gobia.cloud`). A lost key means installations that trust this
   public key can never update again. 1.x installations keep trusting their own key and reject 2.x releases (1.x to 2.x is the import in
   `docs/gobia-upgrade-from-1x.md`, never an in-place update).
 * **Build.** `gobia-release.json` says 2.0.0. Build was `npm ci`, `npm --prefix extensions/gobia-files ci`, `npm run build:production`,

@@ -17,7 +17,7 @@ return [
     'provider' => env('GOBIA_UPDATE_PROVIDER', 'github'),
 
     // The only repository releases are installed from.
-    'repository' => env('GOBIA_UPDATE_REPOSITORY', 'Cryvex-Dev/panel.gobia.cloud'),
+    'repository' => env('GOBIA_UPDATE_REPOSITORY', 'darkzmaj/Gobiadactyl-Panel'),
 
     // Fine-grained token with read-only "Contents" access to the repository above. Never exposed to the browser.
     'github_token' => env('GOBIA_UPDATE_GITHUB_TOKEN'),
