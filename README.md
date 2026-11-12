@@ -1,94 +1,87 @@
 <p align="center">
-  <a href="https://pterodactyl.io">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
-      <img alt="Pterodactyl" src=".github/assets/logo-light.svg" height="72">
-    </picture>
-  </a>
+  <img alt="Gobia Cloud" src="public/gobia/img/logo-text-480.png" height="72">
 </p>
 
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/pterodactyl/panel/ci.yaml?label=Tests&style=for-the-badge&branch=2.0-develop)
-![Discord](https://img.shields.io/discord/122900397965705216?label=Discord&logo=Discord&logoColor=white&style=for-the-badge)
-![GitHub Releases](https://img.shields.io/github/downloads/pterodactyl/panel/latest/total?style=for-the-badge)
-![GitHub contributors](https://img.shields.io/github/contributors/pterodactyl/panel?style=for-the-badge)
+<p align="center">
+  <a href="https://github.com/darkzmaj/Gobiadactyl-Panel/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/darkzmaj/Gobiadactyl-Panel?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/darkzmaj/Gobiadactyl-Panel/actions/workflows/gobia-ci.yaml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/darkzmaj/Gobiadactyl-Panel/gobia-ci.yaml?branch=main&style=for-the-badge&label=CI"></a>
+  <a href="LICENSE.md"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-blue?style=for-the-badge"></a>
+</p>
 
-# Pterodactyl Panel
+# Gobiadactyl Panel
 
-Pterodactyl® is a free, open-source game server management panel built with PHP, React, and Go. Designed with security
-in mind, Pterodactyl runs all game servers in isolated Docker containers while exposing a beautiful and intuitive
-UI to end users.
+Gobiadactyl Panel is the game server control panel behind [Gobia Cloud](https://gobia.cloud). It is a fork of
+[Pterodactyl Panel](https://github.com/pterodactyl/panel) 2.0, built as extensions on Pterodactyl's extension SDK wherever
+possible, so upstream improvements keep flowing in.
 
-Stop settling for less. Make game servers a first class citizen on your platform.
+> **Fork notice.** Gobiadactyl is not affiliated with or endorsed by the Pterodactyl project. Pterodactyl® is a
+> registered trademark of Dane Everitt and contributors. All credit for the underlying panel goes to the Pterodactyl
+> team; see [Credits](#credits).
 
-[![Watch: Introducing Pterodactyl v2](.github/assets/v2-video.jpg)](https://www.youtube.com/watch?v=1ER4kv0jVEU)
+## What Gobiadactyl adds
 
-## What's new in v2
+* **Gobia look and branding** as a theme extension (`gobia-theme`): dark, light and system, with admin settings for the logo,
+  footer, sidebar card and console prompt.
+* **File workspace** (`gobia-files`): a Monaco editor with tabs, workspace search and replace, change detection with compare,
+  dual server editing, and drag and drop transfers between two servers (verified byte for byte). A per person Legacy mode
+  keeps the classic file pages with the same editor.
+* **Instance list** with views (All, You, Other), personal categories and live power, CPU, memory and storage indicators.
+* **Access in one place**: share instances with other people from the account page, with presets built on Pterodactyl's
+  own permissions.
+* **Templates and provisioning** (`gobia-templates`).
+* **Resource protector**: server creation and resource changes keep a safety reserve on every node; the admin overview shows
+  what is still safe to allocate.
+* **Offsite backups** (`gobia-backups`) streamed encrypted to an SFTP storage box.
+* **Signed one click updates**: Admin, Updates installs only releases signed with the Gobia release key, after a preflight,
+  with a database backup and automatic rollback.
 
-This branch (`2.0-develop`) is where Pterodactyl v2 is being built. It is under active development; the current
-stable release line lives on [`1.0-develop`](https://github.com/pterodactyl/panel/tree/1.0-develop).
+## Install
 
-* **Extension SDK** — extend the panel through a versioned API instead of editing core files, so your changes
-  survive updates. Example extensions live in [pterodactyl/extensions](https://github.com/pterodactyl/extensions).
-* **Fully modernized tech stack** — Vite, React 19, TanStack Router and Query, Tailwind 4 and Laravel 13.
-* **Brand new admin area** — the admin and client areas are now a single React application with one design.
-* **One-click egg importer** — browse the egg catalog and import directly from the panel.
-* **Theming with design tokens** — restyle the panel without rebuilding it.
-* **Still 100% free and open source** — MIT licensed, as always.
+Gobiadactyl runs where Pterodactyl 2.0 runs: PHP 8.3 or 8.4, MariaDB 10.5+ or MySQL 8, Redis (recommended), and Pterodactyl
+Wings on the game nodes.
+
+* **Container (recommended):** build an image from a signed release with [`deploy/docker`](docs/gobia-docker.md).
+* **Release package:** download `gobia-panel-<version>.tar.gz` and `release.json` from
+  [Releases](https://github.com/darkzmaj/Gobiadactyl-Panel/releases), check the signature, and install like a Pterodactyl
+  panel. Later updates go through Admin, Updates ([how updates work](docs/gobia-updates.md)).
+* **Coming from Gobia 1.x:** see [the 1.x import](docs/gobia-upgrade-from-1x.md); 1.x cannot update in place.
+
+Release signing key (Ed25519, public): `U/2XlTOgdzsn2lebHDxjkh7HFSNqmYLkm+Hj+3MdVJI=`
 
 ## Documentation
 
-* [Panel Documentation](https://pterodactyl.io/panel/1.0/getting_started.html)
-* [Wings Documentation](https://pterodactyl.io/wings/1.0/installing.html)
-* [Community Guides](https://pterodactyl.io/community/about.html)
-* Or, get additional help [via Discord](https://discord.gg/pterodactyl)
+| Topic | Where |
+| --- | --- |
+| Updates, release signatures, rollback | [docs/gobia-updates.md](docs/gobia-updates.md) |
+| Container image and compose file | [docs/gobia-docker.md](docs/gobia-docker.md) |
+| Customisation (branding, theme settings) | [docs/gobia-customisation.md](docs/gobia-customisation.md) |
+| Offsite backups | [docs/gobia-backups.md](docs/gobia-backups.md) |
+| What Gobiadactyl changes in Pterodactyl's own files | [docs/gobia-core-patches.md](docs/gobia-core-patches.md) |
+| Everything else (panel, Wings, eggs) | [Pterodactyl documentation](https://pterodactyl.io) |
 
-## Sponsors
+## Development
 
-I would like to extend my sincere thanks to the following sponsors for helping fund Pterodactyl's development.
-[Interested in becoming a sponsor?](https://github.com/sponsors/pterodactyl)
+```bash
+composer install && npm ci
+cp .env.example .env && php artisan key:generate && php artisan migrate --seed
+npm run dev        # Vite
+php artisan serve  # backend
+```
 
-| Company                                                                           | About                                                                                                                                                                                                                                           |
-|-----------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [**Buildurly**](https://buildurly.com/)                                           | Buildurly is a hardware procurement company. They deliver tailored, enterprise-grade hardware solutions designed around your unique needs. From sourcing to delivery, Buildurly's white-glove service ensures a seamless, worry-free, professional experience.                                                                                                                                          |
-| [**Hosturly**](https://hosturly.com/)                                             | Hosturly is an enterprise hosting provider. They provide cost-effective, high-performance, and reliable services, including VPS, Web, Dedicated, and Colocation.                                                                                |
-| [**indifferent broccoli**](https://indifferentbroccoli.com/)                      | indifferent broccoli is a game server hosting and rental company. With them, you get top-notch computer power for your gaming sessions. They destroy lag, latency, and complexity--letting you focus on the fun stuff.                         |
-| [**Infraly, LLC**](https://infraly.co/)                                           | Infraly is an infrastructure company powering the next generation of online services. Through their brands, Infraly delivers cutting-edge solutions across multiple markets. Their vertically integrated approach provides unmatched performance, scalability, and reliability, giving our customers full control.                                                                                     |
-| [**MineStrator**](https://minestrator.com/)                                       | MineStrator is a game server hosting provider. Looking for the most high-end French hosting company for your Minecraft server? More than 24,000 members on our Discord trust us. Give us a try!                                                |
-| [**Physgun**](https://physgun.com/)                                               | Physgun is a game server hosting provider. Most providers rent rack space and rebrand a panel. At Physgun, they engineer the performance, write the features, and staff the support. Physgun truly is game hosting perfected!                   |
-| [**WISP**](https://wisp.gg/)                                                      | WISP is an industry-leading SaaS platform for game server management, designed for hosting companies, gaming organizations, and enthusiasts. WISP combines modern, intuitive interfaces with powerful tools, making server deployment and administration seamless, scalable, and efficient.                                                                                                                 |
+Checks: `npm run tsc`, `npm run lint`, `npm test`, `composer test`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Branches
 
-### Supported Games
+* `main`: the current panel (Pterodactyl 2.0 based).
+* `gobia-1.x-preserved` and tag `gobia-1.15-final`: the earlier Gobia panel on Pterodactyl 1.x, kept for reference.
 
-Pterodactyl supports a wide variety of games by utilizing Docker containers to isolate each instance. This gives
-you the power to run game servers without bloating machines with a host of additional dependencies.
+## Credits
 
-Some of our core supported games include:
+Gobiadactyl Panel is built on [Pterodactyl Panel](https://github.com/pterodactyl/panel) by Dane Everitt and the Pterodactyl
+contributors, released under the MIT licence. File icons come from
+[Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT, see
+[docs/gobia-file-icons.md](docs/gobia-file-icons.md)).
 
-* Minecraft — including Paper, Sponge, Bungeecord, Waterfall, and more
-* Rust
-* Terraria
-* Teamspeak
-* Mumble
-* Team Fortress 2
-* Counter Strike: Global Offensive
-* Garry's Mod
-* ARK: Survival Evolved
+## Licence
 
-In addition to our standard nest of supported games, our community is constantly pushing the limits of this software
-and there are plenty more games available provided by the community. Some of these games include:
-
-* Factorio
-* San Andreas: MP
-* Pocketmine MP
-* Squad
-* Xonotic
-* Starmade
-* Discord ATLBot, and most other Node.js/Python discord bots
-* [and many more...](https://eggs.pterodactyl.io)
-
-## License
-
-Pterodactyl® Copyright © 2015 - 2022 Dane Everitt and contributors.
-
-Code released under the [MIT License](./LICENSE.md).
+MIT, like Pterodactyl. See [LICENSE.md](LICENSE.md); the original Pterodactyl copyright notice is kept there.

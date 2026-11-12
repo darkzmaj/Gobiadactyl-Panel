@@ -100,7 +100,7 @@ GOBIA_BACKUP_KEY=<the key printed in step 3> php decrypt.php <backup uuid>.tar.g
   was handed over. It is only ever sent to a node.
 * Everything is written to the activity log (who, which server, which backup, result), without credentials.
 
-## What differs from the specification in MAJCEK_HANDOFF.md section 14
+## What differs from the original specification
 
 | Specification | Built | Why |
 | --- | --- | --- |

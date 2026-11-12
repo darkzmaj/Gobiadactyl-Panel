@@ -1,24 +1,23 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Pterodactyl only provides security support for the latest `major.minor` versions of the Panel and Wings software.
-If a security vulnerability is found in an older version but cannot be reproduced on a supported version it will
-not be considered. Additionally, security issues found in unreleased code will be addressed, but do not warrant a
-security advisory.
+Security fixes go into the latest Gobiadactyl Panel release (see [Releases](https://github.com/darkzmaj/Gobiadactyl-Panel/releases)).
+Older releases are not patched; update through Admin, Updates.
 
-For example, if the latest version of the Panel is `1.2.5` then we only support security reports for issues that
-occur on `>= 1.2.x` versions of the Panel software. The Panel and Wings have their own versions, but they generally
-follow eachother.
+Problems that also exist in an unmodified Pterodactyl Panel should be reported to the Pterodactyl project as well, following
+[their security policy](https://github.com/pterodactyl/panel/security/policy).
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Please use our GitHub Security reporting meachnism to quickly alert the team to any security issues you come across,
-or send an email to `security@pterodactyl.io` with the details of your report.
+Please report privately through GitHub: open the repository's **Security** tab and choose **Report a vulnerability**. Do not use
+public issues, discussions or pull requests for security problems.
 
-We make every effort to respond as soon as possible, although it may take a day or two for us to sync internally and
-determine the severity of the report and its impact. Please, _do not_ use a public facing channel or GitHub issues to
-report sensitive security issues.
+Include what is affected (version or commit), how to reproduce it, and the impact you expect. You will get an answer as soon as
+possible; a fix is released first and the advisory is published afterwards.
 
-As part of our process, we will create a security advisory for the affected versions and disclose it publicly, usually
-two to four weeks after a releasing a version that addresses it.
+## Release integrity
+
+Every release is signed with the Gobia release key (Ed25519, public key
+`U/2XlTOgdzsn2lebHDxjkh7HFSNqmYLkm+Hj+3MdVJI=`). The panel's updater and the container build refuse any package whose signature,
+SHA-256 or size does not match. Never install a package that fails these checks.

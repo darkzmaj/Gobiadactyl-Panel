@@ -38,8 +38,8 @@ the Panel's shell).
 
 The GitHub release provider against the real API (covered only with faked HTTP in 1.x and by the shared code path here), PHP-FPM reloads,
 systemd restarts, the release directory layout end to end (only the helper's `activate` was run), an update while real Wings nodes are
-connected, a full disk during unpacking, and the Updates screen in a browser against a real update. `MAJCEK_HANDOFF.md` section 12 lists
-the tests that still need a disposable real server.
+connected, a full disk during unpacking, and the Updates screen in a browser against a real update. These still need
+a disposable real server.
 
 ## Repeating it
 
