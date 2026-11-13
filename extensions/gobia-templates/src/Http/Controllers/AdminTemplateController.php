@@ -7,6 +7,7 @@ namespace GobiaTemplates\Http\Controllers;
 use GobiaTemplates\Models\ServerTemplate;
 use GobiaTemplates\Models\TemplateInstance;
 use GobiaTemplates\Models\TemplateSftpCredential;
+use GobiaTemplates\Services\TemplateCaptureService;
 use GobiaTemplates\Services\TemplateFileStore;
 use GobiaTemplates\Services\TemplateInstanceService;
 use GobiaTemplates\Services\TemplateService;
@@ -21,6 +22,7 @@ use Pterodactyl\Models\Egg;
 use Pterodactyl\Models\EggVariable;
 use Pterodactyl\Models\Location;
 use Pterodactyl\Models\Node;
+use Pterodactyl\Models\Server;
 use Pterodactyl\Models\User;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -62,6 +64,8 @@ class AdminTemplateController
             'eggs' => $eggs,
             'nodes' => Node::query()->orderBy('name')->get(['id', 'name', 'location_id'])->map(fn (Node $node): array => ['id' => $node->id, 'name' => $node->name, 'location_id' => $node->location_id])->all(),
             'locations' => Location::query()->orderBy('short')->get(['id', 'short'])->map(fn (Location $location): array => ['id' => $location->id, 'short' => $location->short])->all(),
+            // Plain rows: a Server model with only these columns trips strict mode on its appended attributes.
+            'servers' => Server::query()->orderBy('name')->limit(1000)->toBase()->get(['uuid', 'name'])->map(fn (object $row): array => ['uuid' => (string) $row->uuid, 'name' => (string) $row->name])->all(),
             'users' => User::query()->orderBy('username')->limit(500)->get(['id', 'username', 'email'])->map(fn (User $user): array => ['id' => $user->id, 'username' => $user->username, 'email' => $user->email])->all(),
         ]);
     }
@@ -87,6 +91,27 @@ class AdminTemplateController
         $template = $this->templates->update($template, $request->all());
 
         return new JsonResponse($this->detail($template) + ['created_revision' => $template->revision > $before]);
+    }
+
+    #[Endpoint('Create a template from a live server', 'Copies the server\'s software, image, startup, resources, variable values and files into a new disabled, unpublished template.')]
+    public function capture(Request $request, TemplateCaptureService $capture): JsonResponse
+    {
+        $data = $request->validate([
+            'server' => ['required', 'uuid', 'exists:servers,uuid'],
+            'name' => ['required', 'string', 'min:1', 'max:80'],
+            'exclude' => ['sometimes', 'array', 'max:100'],
+            'exclude.*' => ['string', 'max:255'],
+        ]);
+        $server = Server::query()->where('uuid', $data['server'])->firstOrFail();
+        set_time_limit(0);
+        $result = $capture->capture($server, $data['name'], $data['exclude'] ?? []);
+
+        return new JsonResponse([
+            'template' => $this->detail($result['template']),
+            'files' => $result['files'],
+            'bytes' => $result['bytes'],
+            'skipped' => array_slice($result['skipped'], 0, 200),
+        ], 201);
     }
 
     #[Endpoint('Duplicate a template', 'Creates a disabled copy.')]
@@ -147,51 +172,6 @@ class AdminTemplateController
         }
 
         return new JsonResponse(['data' => $data]);
-    }
-
-    /**
-     * One short line per kind of difference from the previous revision.
-     *
-     * @param  array<string, mixed>|null  $previous
-     * @param  array<string, mixed>  $snapshot
-     * @return string[]
-     */
-    private function describeChanges(?array $previous, array $snapshot): array
-    {
-        if ($previous === null) {
-            return ['First revision'];
-        }
-
-        $changes = [];
-        $labels = ['memory' => 'Memory', 'disk' => 'Disk', 'cpu' => 'CPU', 'swap' => 'Swap', 'docker_image' => 'Docker image', 'startup' => 'Startup command', 'egg_id' => 'Egg', 'placement_mode' => 'Placement'];
-        foreach ($labels as $key => $label) {
-            $before = $previous['settings'][$key] ?? null;
-            $after = $snapshot['settings'][$key] ?? null;
-            if ($before !== $after) {
-                $changes[] = in_array($key, ['startup', 'docker_image'], true) ? $label.' changed' : sprintf('%s %s to %s', $label, $before ?? 'unset', $after ?? 'unset');
-            }
-        }
-        $other = array_diff(array_keys(array_diff_assoc($snapshot['settings'] ?? [], $previous['settings'] ?? [])), array_keys($labels));
-        if ($other !== []) {
-            $changes[] = count($other).' other '.(count($other) === 1 ? 'setting' : 'settings').' changed';
-        }
-        if (($previous['variables'] ?? []) !== ($snapshot['variables'] ?? [])) {
-            $changes[] = 'Variables changed';
-        }
-        if (($previous['allowed_nodes'] ?? []) !== ($snapshot['allowed_nodes'] ?? [])) {
-            $changes[] = 'Allowed nodes changed';
-        }
-
-        $before = array_column($previous['files'] ?? [], 'sha256', 'path');
-        $after = array_column($snapshot['files'] ?? [], 'sha256', 'path');
-        $added = count(array_diff_key($after, $before));
-        $removed = count(array_diff_key($before, $after));
-        $modified = count(array_filter($after, fn ($hash, $path): bool => isset($before[$path]) && $before[$path] !== $hash, ARRAY_FILTER_USE_BOTH));
-        if ($added + $removed + $modified > 0) {
-            $changes[] = sprintf('Files: %d added, %d changed, %d removed', $added, $modified, $removed);
-        }
-
-        return $changes === [] ? ['No visible changes'] : $changes;
     }
 
     /* ---- Files: the working tree. publish() turns it into a revision. ---- */
@@ -377,6 +357,51 @@ class AdminTemplateController
     public function instanceRetry(ServerTemplate $template, string $instance): JsonResponse
     {
         return new JsonResponse($this->instanceStatusPayload($this->instances->retry($this->instanceOf($template, $instance))), 202);
+    }
+
+    /**
+     * One short line per kind of difference from the previous revision.
+     *
+     * @param  array<string, mixed>|null  $previous
+     * @param  array<string, mixed>  $snapshot
+     * @return string[]
+     */
+    private function describeChanges(?array $previous, array $snapshot): array
+    {
+        if ($previous === null) {
+            return ['First revision'];
+        }
+
+        $changes = [];
+        $labels = ['memory' => 'Memory', 'disk' => 'Disk', 'cpu' => 'CPU', 'swap' => 'Swap', 'docker_image' => 'Docker image', 'startup' => 'Startup command', 'egg_id' => 'Egg', 'placement_mode' => 'Placement'];
+        foreach ($labels as $key => $label) {
+            $before = $previous['settings'][$key] ?? null;
+            $after = $snapshot['settings'][$key] ?? null;
+            if ($before !== $after) {
+                $changes[] = in_array($key, ['startup', 'docker_image'], true) ? $label.' changed' : sprintf('%s %s to %s', $label, $before ?? 'unset', $after ?? 'unset');
+            }
+        }
+        $other = array_diff(array_keys(array_diff_assoc($snapshot['settings'] ?? [], $previous['settings'] ?? [])), array_keys($labels));
+        if ($other !== []) {
+            $changes[] = count($other).' other '.(count($other) === 1 ? 'setting' : 'settings').' changed';
+        }
+        if (($previous['variables'] ?? []) !== ($snapshot['variables'] ?? [])) {
+            $changes[] = 'Variables changed';
+        }
+        if (($previous['allowed_nodes'] ?? []) !== ($snapshot['allowed_nodes'] ?? [])) {
+            $changes[] = 'Allowed nodes changed';
+        }
+
+        $before = array_column($previous['files'] ?? [], 'sha256', 'path');
+        $after = array_column($snapshot['files'] ?? [], 'sha256', 'path');
+        $added = count(array_diff_key($after, $before));
+        $removed = count(array_diff_key($before, $after));
+        $modified = count(array_filter($after, fn ($hash, $path): bool => isset($before[$path]) && $before[$path] !== $hash, ARRAY_FILTER_USE_BOTH));
+        if ($added + $removed + $modified > 0) {
+            $changes[] = sprintf('Files: %d added, %d changed, %d removed', $added, $modified, $removed);
+        }
+
+        return $changes === [] ? ['No visible changes'] : $changes;
     }
 
     private function instanceOf(ServerTemplate $template, string $uuid): TemplateInstance

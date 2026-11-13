@@ -28,6 +28,6 @@ Route::put('/categories/{category}/servers', [CategoryController::class, 'assign
 Route::put('/categories/{category}/servers/{uuid}', [CategoryController::class, 'membership'])->whereNumber('category')->whereUuid('uuid')->name('categories.membership');
 
 Route::get('/access', [AccessController::class, 'index'])->name('access');
-Route::post('/access', [AccessController::class, 'store'])->name('access.store');
+Route::post('/access', [AccessController::class, 'store'])->middleware('throttle:10,1')->name('access.store');
 Route::put('/access/{person}', [AccessController::class, 'update'])->whereUuid('person')->name('access.update');
 Route::delete('/access/{person}', [AccessController::class, 'destroy'])->whereUuid('person')->name('access.destroy');

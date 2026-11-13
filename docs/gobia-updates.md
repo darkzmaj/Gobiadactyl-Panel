@@ -104,6 +104,15 @@ renames in reverse. `storage/updater` must be on the same filesystem as the Pane
 PHP-FPM picks the new files up through OPcache's timestamp check (the PHP default). If the server runs with
 `opcache.validate_timestamps=0`, install the helper below: the updater then also reloads PHP-FPM.
 
+## Layout 3: container image (Docker, Coolify)
+
+The release image (`deploy/docker/Dockerfile.release`) sets `GOBIA_UPDATE_RUNNER=image`. Its code is root owned and part of the
+image, so nothing is replaced inside a running container. The Updates screen still finds the next approved release and verifies its
+signature and checksum; the permissions check then says the update is deploying that release's image, and the Install button stays
+off. To update: build the image from the signed release (`deploy/docker/build-image.sh <version>`, which verifies the signature
+again), back up the database, deploy the image, then run `php artisan migrate --force` and `php artisan gobia-core:update:finalize`
+in the panel container (the entrypoint does not migrate on its own).
+
 ## Layout 2: release directories (optional, hardened)
 
 ```

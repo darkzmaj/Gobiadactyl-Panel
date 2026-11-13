@@ -213,6 +213,8 @@ test('a person who may only read the source cannot write the destination or move
     Subuser::query()->where('server_id', $this->b->id)->update(['permissions' => ['file.read', 'file.create']]);
     $this->actingAs($reader)->postJson(TRANSFERS, ['source' => $this->a->uuid, 'destination' => $this->b->uuid, 'directory' => '/plugins', 'items' => ['/config.yml'], 'mode' => 'move'])->assertForbidden();
     $this->actingAs($reader)->postJson(TRANSFERS, ['source' => $this->a->uuid, 'destination' => $this->b->uuid, 'directory' => '/plugins', 'items' => ['/config.yml'], 'conflict' => 'replace'])->assertForbidden();
+    // Resuming overwrites an existing destination file, so it needs file.update whatever the conflict choice says.
+    $this->actingAs($reader)->postJson(TRANSFERS, ['source' => $this->a->uuid, 'destination' => $this->b->uuid, 'directory' => '/plugins', 'items' => ['/config.yml'], 'conflict' => 'skip', 'resume' => true])->assertForbidden();
     $this->actingAs($reader)->postJson(TRANSFERS, ['source' => $this->a->uuid, 'destination' => $this->b->uuid, 'directory' => '/plugins', 'items' => ['/config.yml']])->assertOk();
 });
 

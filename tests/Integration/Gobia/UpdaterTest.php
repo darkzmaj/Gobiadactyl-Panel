@@ -15,6 +15,7 @@ use GobiaCore\Updater\Providers\ReleaseProvider;
 use GobiaCore\Updater\ReleaseInfo;
 use GobiaCore\Updater\ReleaseVerifier;
 use GobiaCore\Updater\Runners\DeploymentRunner;
+use GobiaCore\Updater\Runners\ImageRunner;
 use GobiaCore\Updater\Runners\InPlaceRunner;
 use GobiaCore\Updater\RunStore;
 use GobiaCore\Updater\SafeTarExtractor;
@@ -277,6 +278,27 @@ test('the preflight blocks an unsupported PHP, upgrade path, extension downgrade
         ->assertJsonPath('code', 'preflight_failed')
         ->assertJsonPath('step', 'preflight');
     expect(resolve(RunStore::class)->active())->toBeNull();
+});
+
+test('a container image install reports the signed release but never installs it', function (): void {
+    fakeUpdater($this);
+    app()->instance(DeploymentRunner::class, new ImageRunner(resolve(ProcessRunner::class)));
+    $this->publishRelease('2.0.0');
+    $this->actingAs(admin());
+    $this->getJson(UPDATES.'/check?refresh=1')->assertOk();
+
+    $report = $this->getJson(UPDATES.'/preflight')->assertOk()->json();
+    $checks = collect($report['checks'])->keyBy('id');
+    expect($report['ready'])->toBeFalse();
+    expect($checks['permissions']['status'])->toBe('fail');
+    expect($checks['permissions']['message'])->toBe(ImageRunner::MESSAGE);
+    expect($checks['release_signature']['status'])->toBe('pass');
+
+    $this->postJson(UPDATES.'/install', ['target' => '2.0.0', 'confirm_backup' => true])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'preflight_failed');
+    expect(resolve(RunStore::class)->active())->toBeNull();
+    expect(fn () => (new ImageRunner(resolve(ProcessRunner::class)))->restoreFiles('/tmp'))->toThrow(UpdateException::class);
 });
 
 test('install validates its input and only accepts the latest approved release', function (): void {

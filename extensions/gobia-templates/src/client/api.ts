@@ -106,6 +106,7 @@ export interface Options {
     }[];
     nodes: { id: number; name: string; location_id: number }[];
     locations: { id: number; short: string }[];
+    servers: { uuid: string; name: string }[];
     users: { id: number; username: string; email: string }[];
 }
 
@@ -165,6 +166,14 @@ export const saveTemplate = async (id: number | null, body: TemplatePayload) =>
         ? await http.post<DetailResponse>(`${ADMIN}/templates`, body)
         : await http.patch<DetailResponse>(`${ADMIN}/templates/${id}`, body)
     ).data;
+export interface CaptureResponse {
+    template: DetailResponse;
+    files: number;
+    bytes: number;
+    skipped: string[];
+}
+export const captureServer = async (body: { server: string; name: string; exclude: string[] }) =>
+    (await http.post<CaptureResponse>(`${ADMIN}/templates/from-server`, body, { timeout: 0 })).data;
 export const duplicateTemplate = async (id: number) =>
     (await http.post<DetailResponse>(`${ADMIN}/templates/${id}/duplicate`)).data;
 export const toggleTemplate = async (id: number) =>

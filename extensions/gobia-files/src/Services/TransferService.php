@@ -50,7 +50,7 @@ final class TransferService
         set_time_limit(0);
         $source = $this->server($sourceUuid);
         $destination = $this->server($destinationUuid);
-        $this->time('authorize', fn () => $this->authorize($user, $source, $destination, $mode, $conflict));
+        $this->time('authorize', fn () => $this->authorize($user, $source, $destination, $mode, $conflict, $resume));
 
         $target = $this->path($directory);
         $from = new WingsFiles($source);
@@ -421,13 +421,14 @@ final class TransferService
         return $server;
     }
 
-    private function authorize(User $user, Server $source, Server $destination, string $mode, string $conflict): void
+    private function authorize(User $user, Server $source, Server $destination, string $mode, string $conflict, bool $resume): void
     {
         $denied = ! $user->can('file.read', $source)
             || ! $user->can('file.read-content', $source)
             || ! $user->can('file.create', $destination)
             || ($mode === 'move' && ! $user->can('file.delete', $source))
-            || ($conflict === 'replace' && ! $user->can('file.update', $destination));
+            // Resuming replaces an existing destination file whatever the conflict choice, so it needs file.update too.
+            || (($conflict === 'replace' || $resume) && ! $user->can('file.update', $destination));
         // The same answer whichever permission is missing: the response never reveals what exists on a server.
         abort_if($denied, 403, 'You are not allowed to transfer files between these servers.');
 

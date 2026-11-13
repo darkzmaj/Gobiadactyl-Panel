@@ -35,6 +35,7 @@ return [
 
     // "in-place" swaps the code directories inside the installation (the standard /var/www/pterodactyl layout).
     // "release-directory" uses releases/ + a "current" symlink and needs GOBIA_UPDATE_INSTALL_ROOT and the helper.
+    // "image" (container images) installs nothing: the screen reports the signed release and the operator deploys its image.
     'runner' => env('GOBIA_UPDATE_RUNNER', env('GOBIA_UPDATE_INSTALL_ROOT') ? 'release-directory' : 'in-place'),
 
     // Root of a release-directory install: contains releases/, shared/ and the "current" symlink.
