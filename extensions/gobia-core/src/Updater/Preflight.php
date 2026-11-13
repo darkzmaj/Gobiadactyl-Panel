@@ -150,7 +150,7 @@ class Preflight
             $this->check('release_checksum', true, function () use ($release): array {
                 $this->verifier->verifyChecksumFormat($release);
 
-                return ['pass', 'SHA-256 '.substr($release->sha256(), 0, 12).'... is covered by the signature and checked against the download before anything is unpacked.', ['sha256' => $release->sha256(), 'size' => $release->size()]];
+                return ['pass', 'SHA-256 '.mb_substr($release->sha256(), 0, 12).'... is covered by the signature and checked against the download before anything is unpacked.', ['sha256' => $release->sha256(), 'size' => $release->size()]];
             }),
             $this->check('upgrade_path', true, function () use ($current, $release): array {
                 $minimum = $release->minUpgradeFrom();
@@ -231,9 +231,9 @@ class Preflight
             return ['fail', 'The database server version cannot be read.', []];
         }
 
-        $family = str_contains(strtolower($raw), 'mariadb') ? 'mariadb' : 'mysql';
+        $family = str_contains(mb_strtolower($raw), 'mariadb') ? 'mariadb' : 'mysql';
         foreach ($release->databaseServers() as $requirement) {
-            if (preg_match('/^(mariadb|mysql)\s*(>=?|<=?|=)?\s*([\d.]+)$/i', $requirement, $parts) === 1 && strtolower($parts[1]) === $family) {
+            if (preg_match('/^(mariadb|mysql)\s*(>=?|<=?|=)?\s*([\d.]+)$/i', $requirement, $parts) === 1 && mb_strtolower($parts[1]) === $family) {
                 return version_compare($match[1], $parts[3], $parts[2] === '' ? '>=' : $parts[2])
                     ? ['pass', ucfirst($family).' '.$match[1].' satisfies '.$requirement.'.', []]
                     : ['fail', 'The release needs '.$requirement.'; this server runs '.$family.' '.$match[1].'.', []];
@@ -279,17 +279,23 @@ class Preflight
         )->all());
 
         $unreachable = [];
+        $versions = [];
         foreach ($nodes as $node) {
             $response = $responses[(string) $node->id] ?? null;
             if (! $response instanceof \Illuminate\Http\Client\Response || ! $response->successful()) {
                 $unreachable[] = $node->name;
+
+                continue;
             }
+            $version = $response->json('version');
+            $versions[$node->name] = is_string($version) && preg_match('/^[\w.+-]{1,64}$/', $version) === 1 ? $version : 'unknown';
         }
+        $list = implode(', ', array_map(fn (string $name, string $version): string => $name.' '.$version, array_keys($versions), $versions));
 
         // Servers keep running on Wings while the Panel updates, so an unreachable node is a warning, not a blocker.
         return $unreachable === []
-            ? ['pass', 'All '.$nodes->count().' nodes answer.', []]
-            : ['warn', count($unreachable).' of '.$nodes->count().' nodes did not answer: '.implode(', ', array_slice($unreachable, 0, 5)).'.', ['unreachable' => $unreachable]];
+            ? ['pass', 'All '.$nodes->count().' nodes answer (Wings '.$list.').', ['versions' => $versions]]
+            : ['warn', count($unreachable).' of '.$nodes->count().' nodes did not answer: '.implode(', ', array_slice($unreachable, 0, 5)).'.'.($list === '' ? '' : ' Wings '.$list.'.'), ['unreachable' => $unreachable, 'versions' => $versions]];
     }
 
     /** @return array{0: string, 1: string, 2: array<string, mixed>} */

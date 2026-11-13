@@ -257,6 +257,27 @@ test('the preflight is ready for a compatible release and names every check', fu
     expect($report['extensions'][0])->toMatchArray(['id' => 'gobia-core', 'required' => '1.0.0', 'compatible' => true]);
 });
 
+test('the preflight reports the Wings version of every node it reaches', function (): void {
+    fakeUpdater($this);
+    $this->publishRelease('2.0.0');
+    $this->actingAs(admin());
+    $this->getJson(UPDATES.'/check?refresh=1');
+    // A fresh fake: the shared catch-all would answer /api/system first.
+    Http::swap(new \Illuminate\Http\Client\Factory);
+    Http::fake(['*/api/system' => Http::response(['version' => '2.1.0-gobia<script>']), '*' => Http::response()]);
+    $node = $this->createServerModel()->node;
+
+    $check = collect($this->getJson(UPDATES.'/preflight')->assertOk()->json('checks'))->firstWhere('id', 'wings_connectivity');
+    expect($check['status'])->toBe('pass');
+    // A version that is not a plain version string is never echoed back.
+    expect($check['message'])->toContain($node->name.' unknown')->not->toContain('<script>');
+
+    Http::swap(new \Illuminate\Http\Client\Factory);
+    Http::fake(['*/api/system' => Http::response(['version' => '2.1.0-gobia']), '*' => Http::response()]);
+    $check = collect($this->getJson(UPDATES.'/preflight')->assertOk()->json('checks'))->firstWhere('id', 'wings_connectivity');
+    expect($check['message'])->toContain($node->name.' 2.1.0-gobia');
+});
+
 test('the preflight blocks an unsupported PHP, upgrade path, extension downgrade and unwritable installation', function (): void {
     $runner = fakeUpdater($this);
     $runner->problems = ['The Panel directory is not writable by the PHP user.'];
