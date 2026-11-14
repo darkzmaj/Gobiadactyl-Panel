@@ -1,5 +1,5 @@
 {
-    "gobia_version": "2.1.1",
+    "gobia_version": "2.1.2",
     "pterodactyl_base": {
         "branch": "2.0-develop",
         "commit": "3d93cd07d605529a399438d32aa7a08a3e038d02"

@@ -4,7 +4,7 @@ Gobiadactyl Panel releases. Versions follow [Semantic Versioning](https://semver
 listed in [Pterodactyl's changelog](https://github.com/pterodactyl/panel/blob/2.0-develop/CHANGELOG.md); each release below names
 the upstream commit it is based on.
 
-## 2.1.2 (unreleased)
+## 2.1.2 (2026-11-14)
 
 Based on Pterodactyl `2.0-develop` at `3d93cd07d`.
 
