@@ -5,6 +5,8 @@ export interface SiteSettings {
     logo: string | null;
     locale: string;
     userAvatarsEnabled: boolean;
+    /** Gobia: the IANA time zone the panel shows times in; absent or null shows the browser's own. */
+    timezone?: string | null;
     recaptcha: {
         enabled: boolean;
         siteKey: string;

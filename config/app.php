@@ -97,6 +97,9 @@ return [
 
     'timezone' => env('APP_TIMEZONE', 'UTC'),
 
+    // Gobia: the zone times are shown in and schedules run by (set in the panel: gobia-core, Time). Storage stays "timezone".
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration

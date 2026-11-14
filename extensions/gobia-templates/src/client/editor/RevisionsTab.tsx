@@ -1,9 +1,9 @@
+import { formatDate as format } from '@pterodactyl/sdk';
 import { useQuery } from '@tanstack/react-query';
 import { fetchRevisions, keys } from '../api';
 import { formatBytes } from './format';
 
-const formatDate = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Unknown date';
+const formatDate = (iso: string | null) => (iso ? format(iso, 'MMM D, YYYY HH:mm') : 'Unknown date');
 
 /** Every published revision: who made it, what it contains, what changed and which servers were created from it. */
 export default function RevisionsTab({ id }: { id: number }) {

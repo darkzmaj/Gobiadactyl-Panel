@@ -82,7 +82,14 @@ class Schedule extends Model
     {
         $formatted = sprintf('%s %s %s %s %s', $this->cron_minute, $this->cron_hour, $this->cron_day_of_month, $this->cron_month, $this->cron_day_of_week);
 
-        return CarbonImmutable::instance((new CronExpression($formatted))->getNextRunDate());
+        // Gobia: cron is read in the panel's time zone when one is set (gobia-core, Time), so "0 4 * * *" stays 04:00 local
+        // across daylight saving time; the result is stored in the application time zone like every other timestamp.
+        $zone = config('app.display_timezone');
+        $zone = is_string($zone) && $zone !== '' ? $zone : (string) config('app.timezone');
+
+        $next = (new CronExpression($formatted))->getNextRunDate(CarbonImmutable::now($zone), 0, false, $zone);
+
+        return CarbonImmutable::instance($next)->setTimezone((string) config('app.timezone'));
     }
 
     /**

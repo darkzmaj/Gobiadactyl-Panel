@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GobiaCore;
 
+use DateTimeZone;
 use GobiaCore\Actions\GuardedCreateServer;
 use GobiaCore\Actions\GuardedUpdateServerBuild;
 use GobiaCore\Console\ImportLegacyCommand;
@@ -117,6 +118,11 @@ class GobiaCoreProvider extends ExtensionProvider
                 ->help('Shown in blue in front of the panel\'s own lines in a server console. Leave empty for "panel@gobia~".')
                 ->tab('Branding')
                 ->frontend(),
+            ExtensionSettingDefinition::make('timezone', 'timezone', null)
+                ->label('Time zone')
+                ->help('Times in the panel (activity, schedules, backups, updates) are shown in this zone, and schedules run at its local time across daylight saving changes. Empty: every person sees their browser\'s own time zone and schedules use the server time zone.')
+                ->tab('Time')
+                ->field('select', array_map(fn (string $zone): array => ['value' => $zone, 'label' => str_replace('_', ' ', $zone)], DateTimeZone::listIdentifiers())),
             ExtensionSettingDefinition::make(ResourceGuard::ENABLED, ResourceGuard::ENABLED, false, ['boolean'])
                 ->label('Resource protector')
                 ->help('Refuse to create or grow an instance when the memory or storage allocated across all nodes would eat into the reserve below.')
@@ -129,6 +135,12 @@ class GobiaCoreProvider extends ExtensionProvider
                 ->field('number'),
         ]);
         $this->registerSettings($definition);
+        // The panel's display and schedule time zone. Storage keeps APP_TIMEZONE: stored timestamps and the database
+        // session offset depend on it, so only how times are shown and when cron fires follow this setting.
+        $zone = rescue(fn () => $definition->get('timezone'), report: false);
+        if (is_string($zone) && in_array($zone, DateTimeZone::listIdentifiers(), true)) {
+            config(['app.display_timezone' => $zone]);
+        }
         // Every icon element the panel would render is replaced, so no Pterodactyl icon is left in the page head
         // (upstream skips its own default for each element an extension registers).
         $this->registerHeadTags(function () use ($definition): array {

@@ -43,6 +43,8 @@ class AssetComposer
             'logo' => ReplaceBrandLogo::url(),
             'locale' => config('app.locale', 'en'),
             'userAvatarsEnabled' => config('pterodactyl.client_features.avatars.enabled', false),
+            // Gobia: the time zone the panel shows times in (gobia-core, Time); null keeps the browser's own.
+            'timezone' => config('app.display_timezone'),
             'recaptcha' => [
                 'enabled' => config('recaptcha.enabled', false),
                 'siteKey' => config('recaptcha.website_key', ''),

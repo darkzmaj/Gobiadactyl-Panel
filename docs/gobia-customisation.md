@@ -11,6 +11,7 @@ Everything below changes without a rebuild or a deploy.
 | same, **Sidebar** | Show the card at the bottom of the sidebar; its title (empty uses the panel name), description and logo (empty uses the Gobia icon). In the admin area the card reads "Back to instances". | on; panel name; `Beyond The Clouds`; Gobia icon |
 | Admin, Settings, Extensions, Gobia Core, **Branding** | Logo (top bar and sign-in page), favicon (browser tab; also replaces the `.ico`), console prompt | Gobia wordmark; Gobia icon; `panel@gobia~` |
 | same, **Resources** | Resource protector on or off; reserve in percent (0 to 90) | off; 10 % |
+| same, **Time** | Time zone (IANA, such as Europe/Ljubljana): every time the panel shows is in this zone, and schedules run at its local time across daylight saving changes. Stored times stay in `APP_TIMEZONE` | empty: each person's browser zone, schedules in `APP_TIMEZONE` |
 | Admin, Settings, General | Panel name, and upstream's panel logo (used when gobia-core has no logo of its own) | |
 
 **Resource protector.** The admin overview (Resources across all nodes) always shows what is safe to allocate: the total memory and

@@ -1,4 +1,13 @@
-import { Button, ContentBox, PageContentBlock, Spinner, httpErrorToHuman, http, toast } from '@pterodactyl/sdk';
+import {
+    Button,
+    ContentBox,
+    PageContentBlock,
+    Spinner,
+    formatDate,
+    httpErrorToHuman,
+    http,
+    toast,
+} from '@pterodactyl/sdk';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { failingChecks, isTerminal, updateGate } from '../updates/gate';
@@ -200,7 +209,7 @@ export default function UpdatesScreen() {
                         </Button>
                         {check.data?.checked_at && (
                             <span className={'gb:text-xs gb:text-muted-foreground'}>
-                                Last checked {new Date(check.data.checked_at).toLocaleString()}
+                                Last checked {formatDate(check.data.checked_at, 'MMM D, YYYY HH:mm')}
                             </span>
                         )}
                     </div>
@@ -319,7 +328,7 @@ export default function UpdatesScreen() {
                     <p>
                         The last update changed the database. Rolling back restores the database as it was
                         {eligibility.data.database_snapshot?.taken_at
-                            ? ` on ${new Date(eligibility.data.database_snapshot.taken_at).toLocaleString()}`
+                            ? ` on ${formatDate(eligibility.data.database_snapshot.taken_at, 'MMM D, YYYY HH:mm')}`
                             : ' before the update'}
                         . Everything saved since then (new servers, users, settings) is lost.
                     </p>
