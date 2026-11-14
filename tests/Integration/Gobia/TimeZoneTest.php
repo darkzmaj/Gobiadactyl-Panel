@@ -50,6 +50,23 @@ test('with a panel time zone, a schedule fires at that local time on both sides 
     expect(daily('4')->getNextRunDate()->getTimezone()->getName())->toBe('UTC');
 });
 
+test('a panel whose storage zone is not UTC keeps storing in it, with or without a display zone', function (): void {
+    // An install with APP_TIMEZONE=Europe/Ljubljana: nothing is shifted, and the stored value is local storage time.
+    config(['app.timezone' => 'Europe/Ljubljana', 'app.display_timezone' => null]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-01 01:00:00', 'Europe/Ljubljana'));
+    $stored = daily('4')->getNextRunDate();
+    expect($stored->toIso8601String())->toBe('2026-07-01T04:00:00+02:00');
+    expect($stored->getTimezone()->getName())->toBe('Europe/Ljubljana');
+
+    // The same zone chosen in the panel changes nothing.
+    config(['app.display_timezone' => 'Europe/Ljubljana']);
+    expect(daily('4')->getNextRunDate()->toIso8601String())->toBe('2026-07-01T04:00:00+02:00');
+
+    // Another display zone: 04:00 in New York (EDT, UTC-4) is 10:00 in Ljubljana (CEST), stored as such.
+    config(['app.display_timezone' => 'America/New_York']);
+    expect(daily('4')->getNextRunDate()->toIso8601String())->toBe('2026-07-01T10:00:00+02:00');
+});
+
 test('administrators choose the time zone from the list; anything else is refused', function (): void {
     $url = '/api/admin/extensions/gobia-core/settings';
     $this->actingAs(User::factory()->create(['root_admin' => true]));
