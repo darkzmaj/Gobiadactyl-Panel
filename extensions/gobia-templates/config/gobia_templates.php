@@ -22,6 +22,12 @@ return [
         'max_edit_bytes' => 2 * 1024 * 1024,
     ],
 
+    // Following servers: after a restart a server must report running again within this many seconds, or it is rolled back.
+    'sync' => [
+        'health_timeout' => (int) env('GOBIA_TEMPLATE_SYNC_HEALTH_TIMEOUT', 180),
+        'poll_seconds' => 3,
+    ],
+
     /*
     | SFTP access to a template's working files (see docs/gobia-templates.md). The SFTP service is a separate process;
     | it authenticates against the Panel with this shared token and can reach nothing else.

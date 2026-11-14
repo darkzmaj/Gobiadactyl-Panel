@@ -26,6 +26,12 @@ const options: Options = {
 };
 
 describe('template form', () => {
+    it('sends synced paths as a clean list', () => {
+        expect(
+            payloadFromForm({ ...EMPTY_FORM, sync_paths: ' plugins \n\nconfig/paper.yml, mods ' }).sync_paths
+        ).toEqual(['plugins', 'config/paper.yml', 'mods']);
+    });
+
     it('sends nulls for empty optional numbers and trims text', () => {
         const body = payloadFromForm({
             ...EMPTY_FORM,

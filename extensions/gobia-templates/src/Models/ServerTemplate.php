@@ -92,6 +92,7 @@ class ServerTemplate extends Model
         'temporary' => 'bool',
         'ttl_minutes' => 'int',
         'allow_instance_delete' => 'bool',
+        'sync_paths' => 'array',
         'published_at' => 'datetime',
         'working_changed_at' => 'datetime',
     ];

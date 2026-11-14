@@ -44,6 +44,7 @@ export interface TemplateDetail extends TemplateSummary {
     ttl_minutes: number | null;
     allow_instance_delete: boolean;
     allowed_nodes: number[];
+    sync_paths: string[];
     variables: Record<string, Variable>;
 }
 
@@ -75,6 +76,7 @@ export interface TemplatePayload {
     allow_instance_delete: boolean;
     enabled: boolean;
     api_enabled: boolean;
+    sync_paths: string[];
     variables: Record<string, Variable>;
 }
 
@@ -86,6 +88,11 @@ export interface InstanceRow {
     error: string | null;
     server_id: number | null;
     finished: boolean;
+    follow: boolean;
+    revision: number;
+    sync_state: 'syncing' | 'synced' | 'rolled_back' | 'failed' | null;
+    sync_error: string | null;
+    synced_at: string | null;
     created_at: string | null;
 }
 

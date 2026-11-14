@@ -308,7 +308,7 @@ class TemplateProvisioningService
             $segments = explode('/', $path);
             $name = array_pop($segments);
             foreach ($segments as $segment) {
-                $directory = rtrim($parent, '/').'/'.$segment;
+                $directory = mb_rtrim($parent, '/').'/'.$segment;
                 if (! isset($created[$directory])) {
                     $daemon->files()->createDirectory($segment, $parent);
                     $created[$directory] = true;
@@ -317,7 +317,7 @@ class TemplateProvisioningService
             }
 
             try {
-                $target = rtrim($parent, '/').'/'.$name;
+                $target = mb_rtrim($parent, '/').'/'.$name;
                 if (is_resource($content)) {
                     $this->uploader->stream($server, $target, $content);
                 } else {

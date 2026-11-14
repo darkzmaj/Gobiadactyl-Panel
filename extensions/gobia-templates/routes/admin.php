@@ -16,6 +16,8 @@ Route::delete('/templates/{template}', [T::class, 'destroy'])->whereNumber('temp
 Route::post('/templates/{template}/duplicate', [T::class, 'duplicate'])->whereNumber('template')->name('duplicate');
 Route::post('/templates/{template}/toggle', [T::class, 'toggle'])->whereNumber('template')->name('toggle');
 Route::post('/templates/{template}/publish', [T::class, 'publish'])->whereNumber('template')->name('publish');
+Route::post('/templates/{template}/sync', [T::class, 'sync'])->whereNumber('template')->middleware('throttle:10,1')->name('sync');
+Route::post('/templates/{template}/instances/{instance}/follow', [T::class, 'instanceFollow'])->whereNumber('template')->whereUuid('instance')->name('instances.follow');
 
 Route::get('/templates/{template}/revisions', [T::class, 'revisions'])->whereNumber('template')->name('revisions');
 

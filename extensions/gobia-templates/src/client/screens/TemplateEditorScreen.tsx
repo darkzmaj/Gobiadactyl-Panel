@@ -373,6 +373,15 @@ export default function TemplateEditorScreen({ data }: ScreenComponentProps) {
                         checked={form.allow_instance_delete}
                         onChange={(value) => set('allow_instance_delete', value)}
                     />
+                    <TextField
+                        label={'Synced paths'}
+                        hint={
+                            'Folders or files (one per line, such as plugins or config/paper-global.yml) that servers following this template receive with every new revision. Never list worlds. Empty: nothing syncs.'
+                        }
+                        multiline
+                        value={form.sync_paths}
+                        onChange={(value) => set('sync_paths', value)}
+                    />
                 </Section>
 
                 <div className={'gt:flex gt:gap-3'}>

@@ -30,6 +30,11 @@ use Pterodactyl\Models\User;
  * @property string|null $request_hash
  * @property \Illuminate\Support\Carbon|null $expires_at
  * @property \Illuminate\Support\Carbon|null $state_changed_at
+ * @property bool $follow
+ * @property int|null $synced_revision
+ * @property string|null $sync_state
+ * @property string|null $sync_error
+ * @property \Illuminate\Support\Carbon|null $synced_at
  * @property ServerTemplate $template
  * @property Server|null $server
  * @property User $owner
@@ -69,6 +74,9 @@ class TemplateInstance extends Model
         'node_id' => 'int',
         'overrides' => 'array',
         'stage_ms' => 'array',
+        'follow' => 'bool',
+        'synced_revision' => 'int',
+        'synced_at' => 'datetime',
         'expires_at' => 'datetime',
         'state_changed_at' => 'datetime',
     ];

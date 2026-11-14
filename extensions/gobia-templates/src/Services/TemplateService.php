@@ -78,6 +78,8 @@ class TemplateService
             'temporary' => 'sometimes|boolean',
             'ttl_minutes' => 'nullable|integer|min:1|max:5256000',
             'allow_instance_delete' => 'sometimes|boolean',
+            'sync_paths' => 'sometimes|nullable|array|max:50',
+            'sync_paths.*' => 'string|min:1|max:255',
             'variables' => 'sometimes|array|max:200',
             'variables.*.value' => 'nullable|string|max:4096',
             'variables.*.overridable' => 'sometimes|boolean',
@@ -102,6 +104,14 @@ class TemplateService
             $egg = Egg::query()->find($input['egg_id']);
             if (! in_array($input['docker_image'], array_values($egg->docker_images ?? []), true)) {
                 $validator->errors()->add('docker_image', 'The Docker image must be one of the images defined by the selected software.');
+            }
+
+            foreach ($input['sync_paths'] ?? [] as $index => $path) {
+                try {
+                    $this->files->normalizePath(mb_trim((string) $path, ' /'));
+                } catch (DisplayException) {
+                    $validator->errors()->add("sync_paths.$index", 'Use a folder or file path inside the server, such as plugins or config/paper.yml.');
+                }
             }
 
             $mode = $input['placement_mode'];
@@ -447,6 +457,11 @@ class TemplateService
                 continue;
             }
             $template->{$field} = $data[$field];
+        }
+        // Which paths following servers keep in step. Not part of a revision: changing it never creates one.
+        if (array_key_exists('sync_paths', $data)) {
+            $paths = array_map(fn (string $path): string => $this->files->normalizePath(mb_trim($path, ' /')), $data['sync_paths'] ?? []);
+            $template->sync_paths = array_values(array_unique($paths));
         }
 
         // A template that is not fixed to one node carries no stale node reference.

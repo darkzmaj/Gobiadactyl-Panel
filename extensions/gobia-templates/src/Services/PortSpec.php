@@ -16,14 +16,14 @@ class PortSpec
      */
     public static function parse(?string $spec): ?array
     {
-        $spec = trim((string) $spec);
+        $spec = mb_trim((string) $spec);
         if ($spec === '') {
             return [];
         }
 
         $ports = [];
         foreach (explode(',', $spec) as $part) {
-            $part = trim($part);
+            $part = mb_trim($part);
             if (preg_match('/^(\d{1,5})$/', $part, $m)) {
                 $range = [(int) $m[1], (int) $m[1]];
             } elseif (preg_match('/^(\d{1,5})\s*-\s*(\d{1,5})$/', $part, $m)) {

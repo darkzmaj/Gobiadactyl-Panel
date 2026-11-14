@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GobiaTemplates\Http\Controllers;
 
+use GobiaTemplates\Jobs\SyncTemplateJob;
 use GobiaTemplates\Models\ServerTemplate;
 use GobiaTemplates\Models\TemplateInstance;
 use GobiaTemplates\Models\TemplateSftpCredential;
@@ -277,8 +278,34 @@ class AdminTemplateController
     {
         $before = $template->revision;
         $template = $this->templates->publish($template);
+        $created = $template->revision > $before;
+        // A new revision goes out to the servers that follow this template.
+        if ($created && $this->hasFollowers($template)) {
+            SyncTemplateJob::dispatch($template);
+        }
 
-        return new JsonResponse(['revision' => $template->revision, 'created_revision' => $template->revision > $before]);
+        return new JsonResponse(['revision' => $template->revision, 'created_revision' => $created]);
+    }
+
+    #[Endpoint('Sync following servers now', 'Rolls the current revision out to every following server that does not have it yet.')]
+    public function sync(ServerTemplate $template): JsonResponse
+    {
+        if (! $this->hasFollowers($template)) {
+            throw new DisplayException('Choose synced paths and let at least one server follow this template first.');
+        }
+        SyncTemplateJob::dispatch($template);
+
+        return new JsonResponse(['queued' => true], 202);
+    }
+
+    #[Endpoint('Let a server follow the template', 'A following server receives every new revision of the synced paths.')]
+    public function instanceFollow(Request $request, ServerTemplate $template, string $instance): JsonResponse
+    {
+        $data = $request->validate(['follow' => ['required', 'boolean']]);
+        $model = $this->instanceOf($template, $instance);
+        $model->forceFill(['follow' => (bool) $data['follow']])->save();
+
+        return new JsonResponse($this->instanceStatusPayload($model));
     }
 
     /* ---- SFTP credentials ---- */
@@ -359,6 +386,11 @@ class AdminTemplateController
         return new JsonResponse($this->instanceStatusPayload($this->instances->retry($this->instanceOf($template, $instance))), 202);
     }
 
+    private function hasFollowers(ServerTemplate $template): bool
+    {
+        return ($template->sync_paths ?? []) !== [] && $template->instances()->where('follow', true)->exists();
+    }
+
     /**
      * One short line per kind of difference from the previous revision.
      *
@@ -419,6 +451,11 @@ class AdminTemplateController
             'error' => $instance->error,
             'server_id' => $instance->server_id,
             'finished' => $instance->isFinished(),
+            'follow' => $instance->follow,
+            'revision' => $instance->synced_revision ?? $instance->template_revision,
+            'sync_state' => $instance->sync_state,
+            'sync_error' => $instance->sync_error,
+            'synced_at' => $instance->synced_at?->toIso8601String(),
         ];
     }
 
@@ -474,6 +511,7 @@ class AdminTemplateController
                 'ttl_minutes' => $template->ttl_minutes,
                 'allow_instance_delete' => $template->allow_instance_delete,
                 'allowed_nodes' => $template->allowedNodes->pluck('id')->all(),
+                'sync_paths' => $template->sync_paths ?? [],
                 'variables' => $variables,
             ],
             'revisions' => $template->revisions()->limit(25)->get(['revision', 'created_at'])->map(fn ($revision): array => ['revision' => $revision->revision, 'created_at' => $revision->created_at?->toIso8601String()])->all(),

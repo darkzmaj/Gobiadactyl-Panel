@@ -28,6 +28,8 @@ export interface TemplateForm {
     allow_instance_delete: boolean;
     enabled: boolean;
     api_enabled: boolean;
+    /** One path per line (or comma separated). */
+    sync_paths: string;
     variables: Record<string, Variable>;
 }
 
@@ -59,6 +61,7 @@ export const EMPTY_FORM: TemplateForm = {
     allow_instance_delete: true,
     enabled: true,
     api_enabled: false,
+    sync_paths: '',
     variables: {},
 };
 
@@ -93,6 +96,7 @@ export function formFromDetail(template: TemplateDetail): TemplateForm {
         allow_instance_delete: template.allow_instance_delete,
         enabled: template.enabled,
         api_enabled: template.api_enabled,
+        sync_paths: (template.sync_paths ?? []).join('\n'),
         variables: template.variables,
     };
 }
@@ -129,6 +133,10 @@ export function payloadFromForm(form: TemplateForm): TemplatePayload {
         allow_instance_delete: form.allow_instance_delete,
         enabled: form.enabled,
         api_enabled: form.api_enabled,
+        sync_paths: form.sync_paths
+            .split(/[\n,]/)
+            .map((path) => path.trim())
+            .filter(Boolean),
         variables: form.variables,
     };
 }

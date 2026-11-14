@@ -32,7 +32,7 @@ class TemplateFileStore
 
     public function root(): string
     {
-        return rtrim((string) config('gobia_templates.storage'), '/\\');
+        return mb_rtrim((string) config('gobia_templates.storage'), '/\\');
     }
 
     public function templateDirectory(ServerTemplate $template): string
@@ -65,7 +65,7 @@ class TemplateFileStore
      */
     public function normalizePath(string $path): string
     {
-        $path = trim($path);
+        $path = mb_trim($path);
 
         $fail = fn (string $reason) => throw new DisplayException('Invalid template file path: '.$reason.'.');
 
