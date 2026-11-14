@@ -4,7 +4,9 @@ Gobiadactyl Panel releases. Versions follow [Semantic Versioning](https://semver
 listed in [Pterodactyl's changelog](https://github.com/pterodactyl/panel/blob/2.0-develop/CHANGELOG.md); each release below names
 the upstream commit it is based on.
 
-## Unreleased
+## 2.1.4 (2026-11-14)
+
+Based on Pterodactyl `2.0-develop` at `3d93cd07d`.
 
 ### Added
 * Panel time zone (Admin, Settings, Extensions, Gobia Core, Time): every time the panel shows (activity, schedules,
