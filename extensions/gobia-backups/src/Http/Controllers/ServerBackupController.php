@@ -42,8 +42,8 @@ class ServerBackupController
         return new JsonResponse([
             'configured' => $this->policies->destination($server) !== null,
             'schedule' => $policy['enabled'] ? ['cron' => $policy['cron'], 'timezone' => $policy['timezone'], 'keep_last' => $policy['keep_last'], 'keep_days' => $policy['keep_days']] : null,
-            'data' => Run::query()->where('server_uuid', $server->uuid)->where('state', '!=', Run::DELETED)->orderByDesc('id')->limit(100)->get()->map(fn (Run $run): array => $run->summary())->all(),
-            'restores' => Restore::query()->where('server_id', $server->id)->with('run')->orderByDesc('id')->limit(10)->get()->map(fn (Restore $restore): array => $restore->summary())->all(),
+            'data' => Run::query()->where('server_uuid', $server->uuid)->where('state', '!=', Run::DELETED)->orderByDesc('id')->limit(100)->get()->map(fn (Run $run): array => $this->forServer($run->summary()))->all(),
+            'restores' => Restore::query()->where('server_id', $server->id)->with('run')->orderByDesc('id')->limit(10)->get()->map(fn (Restore $restore): array => $this->forServer($restore->summary()))->all(),
         ]);
     }
 
@@ -66,6 +66,22 @@ class ServerBackupController
         $model = Run::query()->where('uuid', $run)->where('server_uuid', $server->uuid)->firstOrFail();
 
         return new JsonResponse($this->restores->request($model, $server, $request->user(), (bool) ($data['truncate'] ?? false))->summary(), 202);
+    }
+
+    /**
+     * Failure messages can name the storage host (connection errors), so server users get a fixed sentence; administrators see
+     * the real reason in the backups admin screen.
+     *
+     * @param  array<string, mixed>  $summary
+     * @return array<string, mixed>
+     */
+    private function forServer(array $summary): array
+    {
+        if (($summary['error'] ?? null) !== null) {
+            $summary['error'] = 'This failed. An administrator can see the reason.';
+        }
+
+        return $summary;
     }
 
     private function authorize(Request $request, Server $server, string $permission): void

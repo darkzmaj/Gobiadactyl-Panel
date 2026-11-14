@@ -9,6 +9,7 @@ import {
 } from '@pterodactyl/sdk';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import CaptureDialog from './CaptureDialog';
 import { deleteTemplate, duplicateTemplate, fetchList, keys, toggleTemplate, type TemplateSummary } from '../api';
 
 const PLACEMENT = { any: 'Any compatible node', fixed_node: 'Fixed node', allowed_nodes: 'Selected nodes' } as const;
@@ -18,6 +19,7 @@ export default function TemplatesScreen() {
     const navigate = usePanelNavigate();
     const { data, isPending, isError, refetch } = useQuery({ queryKey: keys.list, queryFn: fetchList });
     const [removing, setRemoving] = useState<TemplateSummary | null>(null);
+    const [capturing, setCapturing] = useState(false);
     const done = () => queryClient.invalidateQueries({ queryKey: keys.list });
     const fail = (error: Error) => toast.error(httpErrorToHuman(error));
 
@@ -55,6 +57,9 @@ export default function TemplatesScreen() {
                     </p>
                 </div>
                 <div className={'gb-page-actions'}>
+                    <Button.Text type={'button'} onClick={() => setCapturing(true)}>
+                        From a server
+                    </Button.Text>
                     <PanelLink
                         destination={{ extension: 'gobia-templates', screen: 'editor', params: { template: 'new' } }}
                         className={'gb-btn gb-btn-primary'}
@@ -149,6 +154,7 @@ export default function TemplatesScreen() {
                     </table>
                 </div>
             )}
+            {capturing && <CaptureDialog onClose={() => setCapturing(false)} />}
             {removing && (
                 <Dialog.Confirm
                     open

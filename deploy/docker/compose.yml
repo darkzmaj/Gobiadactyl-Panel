@@ -29,8 +29,8 @@ x-panel-environment: &panel-environment
   REDIS_HOST: cache
   REDIS_PASSWORD: ${REDIS_PASSWORD:?}
   MAIL_MAILER: log
-  # The release image never updates itself in place (the code is root owned, so the updater's permission preflight
-  # fails and the Update button stays unavailable); an update is the next signed release's image.
+  # The release image never updates itself in place (GOBIA_UPDATE_RUNNER=image): the Updates screen reports and verifies
+  # the next signed release, and the update is deploying that release's image.
 
 services:
   database:

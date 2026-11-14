@@ -16,6 +16,7 @@ use GobiaCore\Updater\Providers\GitHubReleaseProvider;
 use GobiaCore\Updater\Providers\ReleaseProvider;
 use GobiaCore\Updater\ReleaseVerifier;
 use GobiaCore\Updater\Runners\DeploymentRunner;
+use GobiaCore\Updater\Runners\ImageRunner;
 use GobiaCore\Updater\Runners\InPlaceRunner;
 use GobiaCore\Updater\Runners\ReleaseDirectoryRunner;
 use GobiaCore\Updater\RunStore;
@@ -68,6 +69,7 @@ class GobiaCoreProvider extends ExtensionProvider
             default => throw new UpdateException('The configured update provider is not supported.'),
         });
         $this->app->singleton(DeploymentRunner::class, fn ($app): DeploymentRunner => match (config('gobia_updater.runner')) {
+            'image' => new ImageRunner($app->make(ProcessRunner::class)),
             'in-place' => new InPlaceRunner($app->make(ProcessRunner::class), null, config('gobia_updater.helper') ?: null),
             'release-directory' => new ReleaseDirectoryRunner(
                 $app->make(ProcessRunner::class),

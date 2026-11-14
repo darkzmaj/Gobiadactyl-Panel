@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/options', [T::class, 'options'])->name('options');
 Route::get('/templates', [T::class, 'index'])->name('index');
 Route::post('/templates', [T::class, 'store'])->name('store');
+Route::post('/templates/from-server', [T::class, 'capture'])->middleware('throttle:6,1')->name('capture');
 Route::get('/templates/{template}', [T::class, 'show'])->whereNumber('template')->name('show');
 Route::patch('/templates/{template}', [T::class, 'update'])->whereNumber('template')->name('update');
 Route::delete('/templates/{template}', [T::class, 'destroy'])->whereNumber('template')->name('destroy');

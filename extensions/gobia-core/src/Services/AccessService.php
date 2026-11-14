@@ -172,7 +172,8 @@ class AccessService
             ->get()
             ->filter(fn (Server $server): bool => array_diff(self::MANAGEMENT, $this->authority($actor, $server) ?? self::MANAGEMENT) === []);
 
-        return $owned->concat($delegated)->sortBy('name')->values();
+        // A suspended server is closed to its users (upstream refuses its subuser routes), so its shares cannot change here either.
+        return $owned->concat($delegated)->reject(fn (Server $server): bool => $server->isSuspended())->sortBy('name')->values();
     }
 
     /**

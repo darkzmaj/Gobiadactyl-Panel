@@ -39,6 +39,7 @@ FROM php-base AS runtime
 
 ENV APP_ENV=production \
     APP_DEBUG=false \
+    GOBIA_UPDATE_RUNNER=image \
     QUEUE_WORKER_ENABLED=true \
     SCHEDULER_ENABLED=true \
     LARAVEL_OPTIMIZE=true \

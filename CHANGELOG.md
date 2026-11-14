@@ -4,6 +4,22 @@ Gobiadactyl Panel releases. Versions follow [Semantic Versioning](https://semver
 listed in [Pterodactyl's changelog](https://github.com/pterodactyl/panel/blob/2.0-develop/CHANGELOG.md); each release below names
 the upstream commit it is based on.
 
+## 2.1.1 (2026-11-14)
+
+Based on Pterodactyl `2.0-develop` at `3d93cd07d`.
+
+### Added
+* Templates can be created from a live server (Admin, Templates, From a server): software, image, startup, resources,
+  variable values and a copy of its files, minus what you leave out. The new template is disabled and unpublished.
+* Container installs (`GOBIA_UPDATE_RUNNER=image`, the default in the release image): the Updates screen reports and verifies
+  the next signed release and explains that the update is deploying its image, instead of only saying "not ready".
+
+### Security
+* A file transfer with `resume` could overwrite existing files on the destination without `file.update`; it now needs it.
+* Account, Access: granting access is limited to 10 requests a minute (each grant can create accounts and send mail).
+* Offsite backups: server users see a generic failure message instead of the storage error, which could name the storage host.
+* Account, Access no longer changes shares of suspended servers.
+
 ## 2.1.0 (2026-11-12)
 
 Based on Pterodactyl `2.0-develop` at `3d93cd07d`.

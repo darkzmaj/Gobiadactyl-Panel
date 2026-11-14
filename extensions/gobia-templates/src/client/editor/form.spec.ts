@@ -21,6 +21,7 @@ const options: Options = {
     ],
     nodes: [],
     locations: [],
+    servers: [],
     users: [],
 };
 
