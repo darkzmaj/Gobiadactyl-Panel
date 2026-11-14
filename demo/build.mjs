@@ -65,6 +65,7 @@ writeFileSync(join(out, 'demo', 'fixtures.json'), JSON.stringify(fixtures).repla
 await build({
     configFile: false,
     logLevel: 'warn',
+    define: { __GOBIA_VERSION__: JSON.stringify(JSON.parse(readFileSync(join(root, 'gobia-release.json'), 'utf8')).gobia_version) },
     build: {
         outDir: join(out, 'demo'),
         emptyOutDir: false,

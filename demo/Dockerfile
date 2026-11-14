@@ -14,6 +14,8 @@ COPY . .
 RUN node demo/build.mjs
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
+# Slovenian time for the logs (POSIX rule, so no tzdata is needed).
+ENV TZ=CET-1CEST,M3.5.0,M10.5.0/3
 COPY demo/nginx.conf /etc/nginx/conf.d/default.conf
 COPY demo/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /src/demo/dist /usr/share/nginx/html

@@ -3,6 +3,10 @@ import { categories, findServer, grants, NODES, nodeOf, PEOPLE, servers, usage, 
 import { power, sendCommand } from './wings';
 import permissionGroups from './permissions.json';
 
+// The panel version this demo was built from (gobia-release.json, set by demo/build.mjs).
+declare const __GOBIA_VERSION__: string;
+const VERSION = __GOBIA_VERSION__;
+
 type Params = Record<string, string>;
 type Route = [method: string, pattern: RegExp, handler: (request: MockRequest, params: Params) => MockResponse | Promise<MockResponse>];
 
@@ -216,7 +220,7 @@ function filesRoute(server: DemoServer, action: string, request: MockRequest): M
             const { root = '/' } = body<{ root?: string }>(request);
             const folder = folderAt(server, root);
             if (!folder) return fail(404, 'The directory does not exist.');
-            const name = `archive-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.tar.gz`;
+            const name = `archive-${new Date().toLocaleString('sv-SE').replace(/[: ]/g, '-')}.tar.gz`;
             const node: FileNode = { name, size: 48213, modified: new Date().toISOString() };
             folder.set(name, node);
             return ok(fileObject(node));
@@ -468,7 +472,7 @@ const routes: Route[] = [
 
     ['GET', re('/api/admin/extensions/gobia-core/overview'), overview],
     ['GET', re('/api/admin/languages'), () => ok({ en: 'English', de: 'German', fr: 'French', sl: 'Slovenian' })],
-    ['GET', re('/api/admin/version'), () => ok({ current: '2.1.0', latest: '2.1.0', is_latest: true, daemon: '1.12.1', discord: 'https://discord.gg/example', donations: 'https://example.com/donate' })],
+    ['GET', re('/api/admin/version'), () => ok({ current: VERSION, latest: VERSION, is_latest: true, daemon: '1.12.1', discord: 'https://discord.gg/example', donations: 'https://example.com/donate' })],
     ['GET', re('/api/admin/settings'), () =>
         ok({
             general: { 'app:name': 'Gobia Panel', 'app:logo': null, 'pterodactyl:auth:2fa_required': 0, 'pterodactyl:client_features:avatars:enabled': false, 'app:locale': 'en' },
@@ -481,7 +485,7 @@ const routes: Route[] = [
         ok({ disk: { value: '312.4 GiB', max: '1000 GiB', percent: 31, css: 'bg-green-500' }, memory: { value: '24.1 GiB', max: '64 GiB', percent: 38, css: 'bg-green-500' } })],
     ['GET', re('/api/admin/extensions/gobia-core/compatibility'), () =>
         ok({
-            gobia_version: '2.1.0',
+            gobia_version: VERSION,
             pterodactyl_base: { version: '2.0.0-beta', commit: '3d93cd07d' },
             php: '8.4.14',
             database: { driver: 'mariadb', version: '11.4.4' },
@@ -495,11 +499,11 @@ const routes: Route[] = [
             release: { min_upgrade_from: '2.0.0', security_update: false },
         })],
     ['GET', re('/api/admin/extensions/gobia-core/updates/check'), () =>
-        ok({ contract_version: 1, current: { gobia: '2.1.0', pterodactyl_base: '2.0.0-beta' }, latest_approved: null, update_available: false, error: null, checked_at: new Date().toISOString(), active_update_id: null })],
+        ok({ contract_version: 1, current: { gobia: VERSION, pterodactyl_base: '2.0.0-beta' }, latest_approved: null, update_available: false, error: null, checked_at: new Date().toISOString(), active_update_id: null })],
     ['GET', re('/api/admin/extensions/gobia-core/updates/preflight'), () =>
         ok({ ready: true, checks: [{ id: 'php', required: true, status: 'pass', message: 'PHP 8.4.14' }, { id: 'disk', required: true, status: 'pass', message: '61 GiB free' }], extensions: [], migrations: { pending: 0, destructive: false, rollback: 'file-only' } })],
     ['GET', re('/api/admin/extensions/gobia-core/updates/history'), () =>
-        ok({ data: [{ update_id: '20261112T183000-a1b2c3', from: '2.0.0', to: '2.1.0', started_at: '2026-11-12T18:30:00Z', finished_at: '2026-11-12T18:33:41Z', result: 'completed', database_restored: false }] })],
+        ok({ data: [{ update_id: '20261112T183000-a1b2c3', from: '2.1.0', to: VERSION, started_at: '2026-11-12T18:30:00Z', finished_at: '2026-11-12T18:33:41Z', result: 'completed', database_restored: false }] })],
     ['GET', re('/api/admin/extensions/gobia-core/updates/rollback-eligibility'), () => ok({ eligible: false, mode: 'file-only', update_id: null, database_snapshot: null, reason: 'Rollback is turned off in the demo.' })],
     ['POST', /^\/api\/admin\/extensions\/gobia-core\/updates\//, () => fail(400, 'Updates are not installed from the demo.')],
     ['GET', /^\/api\/(client\/account|client\/servers\/[0-9a-f-]+|admin)\/activity\/filters$/, () =>

@@ -11,7 +11,7 @@ const RESET = '\u001b[0m';
 const YELLOW = '\u001b[33m';
 const GREEN = '\u001b[32m';
 
-const stamp = () => new Date().toTimeString().slice(0, 8);
+const stamp = () => new Date().toLocaleTimeString('en-GB', { hourCycle: 'h23' });
 
 function bootLines(server: DemoServer): string[] {
     const port = server.allocations.find((a) => a.is_default)?.port ?? 25565;
