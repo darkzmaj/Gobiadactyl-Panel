@@ -27,3 +27,7 @@ export const useBranding = (key: Key): string =>
         () => read(key),
         () => ''
     );
+
+/** The panel name to show: the configured one, or Gobia while the panel still carries upstream's default name. */
+export const brandName = (name: string | null | undefined): string =>
+    name && name.trim() !== '' && name.trim() !== 'Pterodactyl' ? name.trim() : 'Gobia';

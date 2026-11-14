@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { Main, type ViewProps } from '@pterodactyl/sdk/theme';
-import { DEFAULT_LOGO, DEFAULT_LOGO_2X, useBranding } from '../../gobia/branding';
+import { brandName, DEFAULT_LOGO, DEFAULT_LOGO_2X, useBranding } from '../../gobia/branding';
 import AuthPreview from './AuthPreview';
 
 /**
@@ -9,6 +10,11 @@ import AuthPreview from './AuthPreview';
  */
 export default function AuthLayout({ model, children }: ViewProps<'layout.auth'>) {
     const uploaded = useBranding('logo') || model.brand.logoUrl;
+    const name = brandName(model.brand.name);
+    // Sign-in pages set no title of their own, so the tab would keep the server rendered name (upstream's default).
+    useEffect(() => {
+        document.title = name;
+    }, [name]);
 
     return (
         <div className='gb-auth'>
@@ -26,7 +32,7 @@ export default function AuthLayout({ model, children }: ViewProps<'layout.auth'>
                             <img
                                 src={uploaded || DEFAULT_LOGO}
                                 srcSet={uploaded ? undefined : `${DEFAULT_LOGO} 1x, ${DEFAULT_LOGO_2X} 2x`}
-                                alt={model.brand.name}
+                                alt={name}
                             />
                         </div>
                         {children}

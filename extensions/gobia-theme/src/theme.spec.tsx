@@ -32,3 +32,11 @@ test('frames the sign-in pages with the Gobia card', () => {
 
     expect(rendered.container.querySelector('.gb-auth-box h1')?.textContent).toBe('Login');
 });
+
+test('titles the sign-in tab with the panel name, never upstream default "Pterodactyl"', () => {
+    document.title = 'Pterodactyl';
+    rendered = renderView('layout.auth', { themes });
+
+    expect(document.title).toBe('Gobia');
+    expect(rendered.container.querySelector('.gb-auth-logo img')?.getAttribute('alt')).toBe('Gobia');
+});
