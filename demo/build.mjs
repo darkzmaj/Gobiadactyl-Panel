@@ -142,6 +142,12 @@ const csp = [
     "form-action 'none'",
 ].join('; ');
 
+// The demo's own files keep fixed names; a content hash in the link makes a new deploy reach visitors at once.
+const version = (file) => createHash('sha256').update(readFileSync(file)).digest('hex').slice(0, 10);
+const configVersion = version(join(out, 'demo', 'config.js'));
+const mockVersion = version(join(out, 'demo', 'mock.js'));
+const cssVersion = version(join(demo, 'demo.css'));
+
 const html = `<!DOCTYPE html>
 <html lang="en" class="dark" data-theme="gobia-theme">
     <head>
@@ -153,13 +159,13 @@ const html = `<!DOCTYPE html>
         <link rel="icon" type="image/png" href="/gobia/img/favicon-32.png">
         <link rel="apple-touch-icon" href="/gobia/img/apple-touch-icon.png">
         <meta name="theme-color" content="#0e4688" data-theme-token>
-        <script src="/demo/config.js"></script>
-        <script src="/demo/mock.js"></script>
+        <script src="/demo/config.js?v=${configVersion}"></script>
+        <script src="/demo/mock.js?v=${mockVersion}"></script>
         <style id="theme-settings"></style>
         <link rel="stylesheet" href="${asset('resources/scripts/assets/tailwind.css')}">
         <link rel="stylesheet" href="/assets/extensions/gobia-theme/theme.css">
         ${(main.css ?? []).map((file) => `<link rel="stylesheet" href="/assets/${file}">`).join('')}
-        <link rel="stylesheet" href="/demo/demo.css">
+        <link rel="stylesheet" href="/demo/demo.css?v=${cssVersion}">
         <script type="importmap">${importMapJson}</script>
         <link rel="modulepreload" href="${entryUrl('gobia-theme')}">
     </head>
