@@ -33,6 +33,8 @@ test('created eggs carry the built-in tags of their directory', function (): voi
         ->and(slugs('Insurgency'))->toBe(['srcds'])
         ->and(slugs('Teamspeak3 Server'))->toBe(['voice'])
         ->and(slugs('Rust'))->toBe(['rust'])
+        ->and(slugs('Gate Lite'))->toBe(['minecraft'])
+        ->and(slugs('PumpkinMC'))->toBe(['minecraft'])
         ->and(Tag::query()->where('slug', 'srcds')->sole()->name)->toBe('Source Engine');
 });
 

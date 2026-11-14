@@ -6,6 +6,11 @@
 #
 # First start: docker compose run --rm panel php artisan migrate --force --seed
 #              then the post_install commands of gobia-release.json (extensions and theme).
+# Eggs: --seed imports the shipped eggs, including the Gobiadactyl ones (PumpkinMC, DivineMC, CanvasMC, Gate, Gate Lite).
+#       On a running install, add or refresh them with: php artisan db:seed --class="Database\Seeders\EggSeeder" --force
+#       (existing eggs are updated in place and keep their tags).
+# Reverse proxy: behind Traefik 3, set aliasHeadersStrategy to "reject" on the route in front of the panel; Traefik warns
+#       otherwise, because PHP reads header names that differ only in "-" and "_" as the same header.
 
 x-panel-environment: &panel-environment
   APP_URL: ${APP_URL:?}
