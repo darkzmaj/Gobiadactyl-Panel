@@ -2,6 +2,7 @@ import type { MockRequest, MockResponse } from './transport';
 import { categories, findServer, grants, NODES, nodeOf, PEOPLE, servers, usage, USER, type DemoServer, type Folder, type FileNode } from './data';
 import { power, sendCommand } from './wings';
 import permissionGroups from './permissions.json';
+import { displayTimeZone, TIME_ZONE } from './clock';
 
 // The panel version this demo was built from (gobia-release.json, set by demo/build.mjs).
 declare const __GOBIA_VERSION__: string;
@@ -220,7 +221,7 @@ function filesRoute(server: DemoServer, action: string, request: MockRequest): M
             const { root = '/' } = body<{ root?: string }>(request);
             const folder = folderAt(server, root);
             if (!folder) return fail(404, 'The directory does not exist.');
-            const name = `archive-${new Date().toLocaleString('sv-SE').replace(/[: ]/g, '-')}.tar.gz`;
+            const name = `archive-${new Date().toLocaleString('sv-SE', { timeZone: displayTimeZone() }).replace(/[: ]/g, '-')}.tar.gz`;
             const node: FileNode = { name, size: 48213, modified: new Date().toISOString() };
             folder.set(name, node);
             return ok(fileObject(node));
@@ -314,6 +315,49 @@ function grant(request: MockRequest): MockResponse {
     }
     entry.servers = chosen.map((uuid) => ({ uuid, permissions }));
     return none();
+}
+
+// ---- Extensions (Admin, Settings, Extensions) ------------------------------------------------------------------
+
+const EXTENSIONS = [
+    { id: 'gobia-core', name: 'Gobia Core', description: 'Gobia branding, profile, appearance, access, server organization, admin overview and updates.', provider: 'GobiaCore\GobiaCoreProvider', icon: null, has_ui: true },
+    { id: 'gobia-files', name: 'Gobia Files', description: 'File workspace: persistent explorer, Monaco editor tabs, workspace search and replace, conflict detection and structured validation.', provider: 'GobiaFiles\GobiaFilesProvider', icon: null, has_ui: true },
+    { id: 'gobia-theme', name: 'Gobia', description: 'The Gobia look: sidebar shell, sign-in screen, colours, type and components.', provider: null, icon: 'palette', has_ui: true },
+];
+
+const zones = () => (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.('timeZone') ?? [TIME_ZONE];
+const field = (input: string, label: string, tab: string, kind: string, value: unknown, help: string | null, options: { value: string; label: string }[] = [], visibility = 'admin') => ({
+    input, label, help, tab, field: kind, options, value, visibility,
+    constraints: { max_length: kind === 'text' ? 40 : null, max_items: null, max_kilobytes: kind === 'file' ? 1024 : null, accept: kind === 'file' ? ['image/png'] : [] },
+});
+const coreSettings: Record<string, unknown> = { logo: null, favicon: null, console_prompt: 'demo@gobia~', timezone: TIME_ZONE, resource_guard_enabled: true, resource_guard_reserve: 10 };
+const coreSchema = () => [
+    field('logo', 'Logo', 'Branding', 'file', coreSettings.logo, 'PNG shown in the top bar instead of the Gobia wordmark. Leave empty to use the Gobia logo.', [], 'public'),
+    field('favicon', 'Favicon', 'Branding', 'file', coreSettings.favicon, 'PNG used as the browser tab icon. Leave empty to use the Gobia icon.', [], 'public'),
+    field('console_prompt', 'Console prompt', 'Branding', 'text', coreSettings.console_prompt, 'Shown in blue in front of the panel\'s own lines in a server console. Leave empty for "panel@gobia~".', [], 'frontend'),
+    field('timezone', 'Time zone', 'Time', 'select', coreSettings.timezone, "Times in the panel (activity, schedules, backups, updates) are shown in this zone, and schedules run at its local time across daylight saving changes. Empty: every person sees their browser's own time zone and schedules use the server time zone.", zones().map((zone) => ({ value: zone, label: zone.replace(/_/g, ' ') }))),
+    field('resource_guard_enabled', 'Resource protector', 'Resources', 'toggle', coreSettings.resource_guard_enabled, 'Refuse to create or grow an instance when the memory or storage allocated across all nodes would eat into the reserve below.'),
+    field('resource_guard_reserve', 'Reserve (%)', 'Resources', 'number', coreSettings.resource_guard_reserve, 'The share of the total memory and storage of all nodes that must stay unallocated, so the machines are never pushed to their limit.'),
+];
+const settingsOf = (id: string) => ok({ data: { registered: id === 'gobia-core', schema: id === 'gobia-core' ? coreSchema() : [] } });
+
+function saveSettings(id: string, request: MockRequest): MockResponse {
+    if (id !== 'gobia-core') return fail(404, 'This extension has no settings.');
+    const values = body<{ settings?: Record<string, unknown> }>(request).settings ?? {};
+    if ('timezone' in values) {
+        const zone = values.timezone;
+        if (zone !== null && zone !== '' && !zones().includes(String(zone))) return { status: 422, body: { errors: [{ code: 'ValidationException', status: '422', detail: 'Choose a time zone from the list.', meta: { source_field: 'settings.timezone', rule: 'in' } }] } };
+        coreSettings.timezone = zone || null;
+        // The panel reads the zone from the bootstrap data on every format, like a page rendered after the save.
+        (window as unknown as { SiteConfiguration: { timezone: string | null } }).SiteConfiguration.timezone = (zone as string) || null;
+        try {
+            localStorage.setItem('gobia-demo:timezone', (zone as string) || 'browser');
+        } catch {
+            // The change still applies until the page reloads.
+        }
+    }
+    for (const key of ['console_prompt', 'resource_guard_enabled', 'resource_guard_reserve']) if (key in values) coreSettings[key] = values[key];
+    return settingsOf(id);
 }
 
 // ---- Routes ------------------------------------------------------------------------------------------------------
@@ -470,6 +514,13 @@ const routes: Route[] = [
         return none();
     }],
 
+    ['GET', re('/api/admin/extensions'), () =>
+        ok({ data: EXTENSIONS.map((e) => ({ ...e, version: '1.0.0', author: 'Gobia', icon_url: null, ui_entry: 'dist/client.js', ui_mode: 'native', frontend_entry: `/assets/extensions/${e.id}/client.js`, installed: true, enabled: true, state: 'enabled', error: null, error_phase: null, errored_at: null })), meta: { enabled: true, directory: 'extensions' } })],
+    ['GET', re('/api/admin/extensions/forms'), () => ok({ data: {} })],
+    ['GET', re('/api/admin/extensions/(?<ext>[a-z0-9-]+)/settings'), (_, p) => settingsOf(p.ext)],
+    ['PUT', re('/api/admin/extensions/(?<ext>[a-z0-9-]+)/settings'), (r, p) => saveSettings(p.ext, r)],
+    ['PATCH', re('/api/admin/extensions/(?<ext>[a-z0-9-]+)/settings'), (r, p) => saveSettings(p.ext, r)],
+    ['POST', re('/api/admin/extensions/(?<ext>[a-z0-9-]+)/(enable|disable)'), () => fail(400, 'Extensions stay enabled in the demo.')],
     ['GET', re('/api/admin/extensions/gobia-core/overview'), overview],
     ['GET', re('/api/admin/languages'), () => ok({ en: 'English', de: 'German', fr: 'French', sl: 'Slovenian' })],
     ['GET', re('/api/admin/version'), () => ok({ current: VERSION, latest: VERSION, is_latest: true, daemon: '1.12.1', discord: 'https://discord.gg/example', donations: 'https://example.com/donate' })],

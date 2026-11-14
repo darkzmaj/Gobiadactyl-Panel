@@ -44,6 +44,9 @@
                 return { id: e.id, entry: e.entry, prefix: e.prefix, translations: null, config: e.config, development: null, theme: e.theme };
             });
     }
+    // The panel time zone (Gobia Core, Time): Europe/Ljubljana unless changed in the demo's admin settings.
+    var zone = read('gobia-demo:timezone');
+    site.timezone = zone === 'browser' ? null : zone || 'Europe/Ljubljana';
     window.SiteConfiguration = site;
 
     var preference = read('gobia-demo:scheme') || 'system';
