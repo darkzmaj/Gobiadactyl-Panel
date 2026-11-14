@@ -22,6 +22,16 @@ return [
         'max_edit_bytes' => 2 * 1024 * 1024,
     ],
 
+    // Files that usually hold secrets (proxy forwarding secrets, environment files). "From a server" does not copy them
+    // and following servers never receive them. A pattern with a "/" matches the whole path, otherwise only the file name.
+    'secret_files' => [
+        'config/paper-global.yml',
+        'forwarding.secret',
+        '*.secret',
+        '.env',
+        '.env.*',
+    ],
+
     // Following servers: after a restart a server must report running again within this many seconds, or it is rolled back.
     'sync' => [
         'health_timeout' => (int) env('GOBIA_TEMPLATE_SYNC_HEALTH_TIMEOUT', 180),

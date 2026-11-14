@@ -168,7 +168,8 @@ class TemplateSyncService
         /** @var list<array{path: string, size: int, sha256: string}> $files */
         $files = $row->snapshot['files'] ?? [];
 
-        return $files;
+        // Files that may hold secrets are never sent to (or removed from) a server.
+        return array_values(array_filter($files, fn (array $file): bool => ! $this->files->isSecretFile($file['path'])));
     }
 
     /** @param array{put: list<array{path: string, size: int, sha256: string}>, delete: list<string>} $change */

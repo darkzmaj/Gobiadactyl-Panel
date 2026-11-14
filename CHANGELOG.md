@@ -4,6 +4,13 @@ Gobiadactyl Panel releases. Versions follow [Semantic Versioning](https://semver
 listed in [Pterodactyl's changelog](https://github.com/pterodactyl/panel/blob/2.0-develop/CHANGELOG.md); each release below names
 the upstream commit it is based on.
 
+## Unreleased
+
+### Security
+* Templates: "From a server" no longer copies, and following servers are never sent, files that usually hold secrets
+  (`config/paper-global.yml` with the Velocity forwarding secret, `forwarding.secret`, `*.secret`, `.env`). The list is
+  `secret_files` in the gobia-templates configuration.
+
 ## 2.1.2 (2026-11-14)
 
 Based on Pterodactyl `2.0-develop` at `3d93cd07d`.

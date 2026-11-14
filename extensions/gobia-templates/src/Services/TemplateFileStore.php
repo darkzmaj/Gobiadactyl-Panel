@@ -103,6 +103,23 @@ class TemplateFileStore
         return implode('/', $segments);
     }
 
+    /** Whether a path matches gobia_templates.secret_files: capture never copies it and sync never sends it. */
+    public function isSecretFile(string $path): bool
+    {
+        $path = mb_trim($path, '/');
+        $name = basename($path);
+        foreach ((array) config('gobia_templates.secret_files', []) as $pattern) {
+            if (! is_string($pattern) || $pattern === '') {
+                continue;
+            }
+            if (fnmatch($pattern, str_contains($pattern, '/') ? $path : $name, FNM_PATHNAME)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * Makes sure the working tree exists. The first time a template that only has published files is opened, the
      * working tree is filled from the latest published revision.

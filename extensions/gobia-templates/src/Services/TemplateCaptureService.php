@@ -117,6 +117,11 @@ class TemplateCaptureService
                 continue;
             }
 
+            if ($this->files->isSecretFile($path)) {
+                $result['skipped'][] = $path.' (may hold a secret)';
+
+                continue;
+            }
             try {
                 $this->files->normalizePath($path);
             } catch (DisplayException) {

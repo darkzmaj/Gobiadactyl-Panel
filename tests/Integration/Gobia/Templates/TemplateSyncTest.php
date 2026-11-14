@@ -192,6 +192,8 @@ class TemplateSyncTest extends IntegrationTestCase
         $service = app(TemplateService::class);
         $service->putFile($template, 'plugins/a.yml', "a: 2\n");
         $service->putFile($template, 'plugins/new.yml', 'n');
+        // Holds a secret: never sent to a server (gobia_templates.secret_files).
+        $service->putFile($template, 'plugins/forwarding.secret', 's');
         $service->deleteFile($template, 'plugins/old.jar');
         $service->putFile($template, 'world/level.dat', 'w2');
         $service->publish($template);

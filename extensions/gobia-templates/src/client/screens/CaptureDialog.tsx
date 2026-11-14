@@ -72,8 +72,8 @@ export default function CaptureDialog({ onClose }: { onClose: () => void }) {
                     onChange={setExclude}
                 />
                 <p className={'gb-hint'}>
-                    Stop the server first for a consistent copy of worlds and databases. Symbolic links and files such
-                    as .env are not copied.
+                    Stop the server first for a consistent copy of worlds and databases. Symbolic links and files that
+                    may hold secrets (.env, forwarding.secret, config/paper-global.yml) are not copied.
                 </p>
             </form>
             <Dialog.Footer>

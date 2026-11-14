@@ -27,6 +27,13 @@ class TemplateCaptureTest extends IntegrationTestCase
         '/world' => null,
         '/world/level.dat' => 'big world',
         '/.env' => 'SECRET=1',
+        '/forwarding.secret' => 'velocity',
+        '/config' => null,
+        '/config/paper-global.yml' => 'proxies:
+  velocity:
+    secret: abc
+',
+        '/config/bukkit-extra.yml' => 'ok',
     ];
 
     protected function setUp(): void
@@ -76,8 +83,8 @@ class TemplateCaptureTest extends IntegrationTestCase
         $this->assertSame($server->egg_id, $template->egg_id);
         $this->assertSame(1024, $template->memory);
         $this->assertFalse((bool) $template->enabled);
-        $this->assertSame(2, $response['files']);
-        $this->assertSame(['.env (not allowed in a template)'], $response['skipped']);
+        $this->assertSame(3, $response['files']);
+        $this->assertEqualsCanonicalizing(['.env (may hold a secret)', 'forwarding.secret (may hold a secret)', 'config/paper-global.yml (may hold a secret)'], $response['skipped']);
 
         $work = app(TemplateFileStore::class)->workDirectory($template);
         $this->assertSame("\x00\x01binary\xff", file_get_contents($work.'/plugins/Gate.jar'));
