@@ -4,7 +4,7 @@ Gobiadactyl Panel releases. Versions follow [Semantic Versioning](https://semver
 listed in [Pterodactyl's changelog](https://github.com/pterodactyl/panel/blob/2.0-develop/CHANGELOG.md); each release below names
 the upstream commit it is based on.
 
-## 2.2.0 (unreleased)
+## 2.1.2 (unreleased)
 
 Based on Pterodactyl `2.0-develop` at `3d93cd07d`.
 
@@ -14,8 +14,10 @@ Based on Pterodactyl `2.0-develop` at `3d93cd07d`.
   following servers one at a time: only changed and new files under the synced paths are written and removed ones deleted,
   a running server is restarted and must report running again, and a server that fails gets its previous files back and
   stops the rollout. "Sync now" repeats a rollout. The template is the source of truth; servers never sync with each other.
-* The Gobiadactyl eggs (PumpkinMC, DivineMC, CanvasMC, Gate, Gate Lite) ship with the panel and are seeded with the
-  Minecraft tag.
+
+### Fixed
+* The browser tab on the sign-in pages showed "Pterodactyl"; it now shows the panel name (Gobia while the name is still
+  upstream's default).
 
 ## 2.1.1 (2026-11-14)
 
